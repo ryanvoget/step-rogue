@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0d1117"/>
+  <rect x="108" y="108" width="296" height="296" rx="40" fill="#7c3aed" opacity="0.15"/>
+  <!-- Sword blade -->
+  <rect x="248" y="100" width="16" height="220" rx="8" fill="#a855f7"/>
+  <!-- Crossguard -->
+  <rect x="192" y="296" width="128" height="14" rx="7" fill="#7c3aed"/>
+  <!-- Grip -->
+  <rect x="250" y="310" width="12" height="70" rx="6" fill="#6d28d9"/>
+  <!-- Pommel -->
+  <ellipse cx="256" cy="396" rx="18" ry="14" fill="#7c3aed"/>
+  <!-- Sword tip -->
+  <polygon points="256,88 248,118 264,118" fill="#c084fc"/>
+  <!-- Step dots (footprint indicators) -->
+  <circle cx="168" cy="180" r="8" fill="#a855f7" opacity="0.6"/>
+  <circle cx="148" cy="210" r="6" fill="#a855f7" opacity="0.4"/>
+  <circle cx="340" cy="200" r="8" fill="#a855f7" opacity="0.6"/>
+  <circle cx="360" cy="170" r="6" fill="#a855f7" opacity="0.4"/>
+</svg>

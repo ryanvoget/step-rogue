@@ -1,0 +1,10 @@
+{
+  "name": "step-rogue",
+  "version": "0.1.0",
+  "description": "A roguelike adventure powered by your steps",
+  "private": true,
+  "scripts": {
+    "start": "npx serve . --listen 3000 --no-clipboard",
+    "dev": "npx live-server --port=3000 --no-browser"
+  }
+}
