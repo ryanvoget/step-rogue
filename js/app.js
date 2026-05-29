@@ -1,4 +1,5 @@
 import { renderMenuScreen } from './menu.js';
+import { initNav } from './nav.js';
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
@@ -12,6 +13,7 @@ async function registerServiceWorker() {
 function init() {
   registerServiceWorker();
   const container = document.getElementById('screen-container');
+  initNav(container, renderMenuScreen);
   renderMenuScreen(container);
 }
 
