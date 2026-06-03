@@ -24,3 +24,11 @@ export function addSteps(steps) {
   save(bank);
   return bank;
 }
+
+export function spendSteps(amount) {
+  const bank = load();
+  if (bank.total < amount) return null;
+  bank.total -= amount;
+  save(bank);
+  return bank;
+}
