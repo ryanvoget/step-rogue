@@ -1,0 +1,244 @@
+[gd_scene format=3 uid="uid://btradeup00001"]
+
+[ext_resource type="Script" path="res://scenes/trade_up/trade_up.gd" id="1_tradeup"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.08, 0.11, 0.16, 1.0)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+content_margin_left = 20.0
+content_margin_top = 20.0
+content_margin_right = 20.0
+content_margin_bottom = 20.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_result"]
+bg_color = Color(0.22, 0.22, 0.27, 1.0)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+content_margin_left = 24.0
+content_margin_top = 24.0
+content_margin_right = 24.0
+content_margin_bottom = 24.0
+
+[node name="TradeUp" type="Control"]
+script = ExtResource("1_tradeup")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.051, 0.067, 0.09, 1.0)
+
+[node name="SelectScreen" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="SelectScreen"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 48.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 14
+
+[node name="Header" type="HBoxContainer" parent="SelectScreen/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="BtnBack" type="Button" parent="SelectScreen/VBox/Header"]
+layout_mode = 2
+custom_minimum_size = Vector2(80, 40)
+theme_override_font_sizes/font_size = 16
+text = "‹ Back"
+
+[node name="Title" type="Label" parent="SelectScreen/VBox/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 22
+vertical_alignment = 1
+text = "Trade Up"
+
+[node name="Desc" type="Label" parent="SelectScreen/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+text = "Select 10 items of the same rarity to trade for a random item one tier higher."
+
+[node name="ScrollArea" type="ScrollContainer" parent="SelectScreen/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Content" type="VBoxContainer" parent="SelectScreen/VBox/ScrollArea"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 14
+
+[node name="Footer" type="VBoxContainer" parent="SelectScreen/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="HintLabel" type="Label" parent="SelectScreen/VBox/Footer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+horizontal_alignment = 1
+text = "Select 10 items of the same rarity"
+
+[node name="BtnConfirm" type="Button" parent="SelectScreen/VBox/Footer"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 18
+text = "Trade Up →"
+disabled = true
+
+[node name="SpinScreen" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+visible = false
+
+[node name="VBox" type="VBoxContainer" parent="SpinScreen"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 48.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 24
+
+[node name="SpinTitle" type="Label" parent="SpinScreen/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+horizontal_alignment = 1
+text = "Trading Up…"
+
+[node name="SpinStage" type="Control" parent="SpinScreen/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 108)
+size_flags_horizontal = 3
+clip_contents = true
+
+[node name="SpinTrack" type="HBoxContainer" parent="SpinScreen/VBox/SpinStage"]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 0.0
+anchor_bottom = 0.0
+theme_override_constants/separation = 8
+
+[node name="SpinLine" type="ColorRect" parent="SpinScreen/VBox/SpinStage"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -2.0
+offset_right = 2.0
+color = Color(1, 1, 1, 0.7)
+
+[node name="SpinHint" type="Label" parent="SpinScreen/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+horizontal_alignment = 1
+text = "What will you get?"
+
+[node name="ResultScreen" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+visible = false
+
+[node name="VBox" type="VBoxContainer" parent="ResultScreen"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 48.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 20
+
+[node name="ResultTitle" type="Label" parent="ResultScreen/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+horizontal_alignment = 1
+text = "Trade Up!"
+
+[node name="ResultCard" type="PanelContainer" parent="ResultScreen/VBox"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_result")
+
+[node name="CardVBox" type="VBoxContainer" parent="ResultScreen/VBox/ResultCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="RarityLabel" type="Label" parent="ResultScreen/VBox/ResultCard/CardVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+horizontal_alignment = 1
+text = ""
+
+[node name="ItemImage" type="TextureRect" parent="ResultScreen/VBox/ResultCard/CardVBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 140)
+size_flags_horizontal = 3
+size_flags_vertical = 8
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ItemName" type="Label" parent="ResultScreen/VBox/ResultCard/CardVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+horizontal_alignment = 1
+text = ""
+
+[node name="SavedLabel" type="Label" parent="ResultScreen/VBox/ResultCard/CardVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.2, 0.85, 0.35, 1.0)
+horizontal_alignment = 1
+text = "✓ Added to inventory"
+
+[node name="Actions" type="VBoxContainer" parent="ResultScreen/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="BtnTradeAgain" type="Button" parent="ResultScreen/VBox/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "⬆  Trade Up Again"
+
+[node name="BtnGoInventory" type="Button" parent="ResultScreen/VBox/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 52)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
+text = "Back to Inventory"
