@@ -19,16 +19,14 @@ workflows:
         script: cd ios/App && pod install
       - name: Set up keychain
         script: keychain initialize
-      - name: Create distribution certificate
-        script: app-store-connect create-certificate --type IOS_DISTRIBUTION --save
+      - name: Add ParsecPlus certificate to keychain
+        script: keychain add-certificates
       - name: Create provisioning profile
         script: |
           app-store-connect fetch-signing-files "com.parsec.game" \
             --platform IOS \
             --type IOS_APP_STORE \
             --create
-      - name: Add certificates to keychain
-        script: keychain add-certificates
       - name: Apply provisioning profiles to Xcode project
         script: xcode-project use-profiles
       - name: Build .ipa
