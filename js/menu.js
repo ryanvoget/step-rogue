@@ -3,6 +3,8 @@ import { handleOpenCrate } from './modules/open-crate.js';
 import { handleSettings } from './modules/settings.js';
 import { handlePlay } from './modules/play.js';
 import { handleInventory } from './modules/inventory.js';
+import { handleCharacter } from './modules/character.js';
+import { initAudio } from './modules/audio.js';
 
 const MENU_BUTTONS = [
   {
@@ -34,6 +36,13 @@ const MENU_BUTTONS = [
     handler: handleInventory,
   },
   {
+    id: 'btn-character',
+    label: 'Character',
+    icon: '🧑',
+    variant: 'secondary',
+    handler: handleCharacter,
+  },
+  {
     id: 'btn-settings',
     label: 'Settings',
     icon: '⚙️',
@@ -43,6 +52,7 @@ const MENU_BUTTONS = [
 ];
 
 export function renderMenuScreen(container) {
+  initAudio();
   container.innerHTML = buildMenuHTML();
   bindMenuEvents(container);
 }
@@ -53,9 +63,9 @@ function buildMenuHTML() {
     <div class="menu-screen">
       <header class="menu-header">
         <div class="menu-logo">
-          <img src="assets/icons/icon.svg" alt="Step Rogue logo" width="48" height="48">
+          <img src="assets/icons/icon.svg" alt="Parsec logo" width="48" height="48">
         </div>
-        <h1 class="menu-title">Step Rogue</h1>
+        <h1 class="menu-title">Parsec</h1>
         <p class="menu-subtitle">Walk to adventure</p>
       </header>
       <nav aria-label="Main menu">

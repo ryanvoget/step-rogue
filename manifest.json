@@ -1,6 +1,6 @@
 {
-  "name": "Step Rogue",
-  "short_name": "StepRogue",
+  "name": "Parsec",
+  "short_name": "Parsec",
   "description": "A roguelike adventure powered by your steps",
   "start_url": "/",
   "display": "standalone",

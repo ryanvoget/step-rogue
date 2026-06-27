@@ -1,0 +1,42 @@
+workflows:
+  ios-testflight:
+    name: Parsec iOS — TestFlight
+    max_build_duration: 60
+    integrations:
+      app_store_connect: App Store Connect
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.parsec.game
+      node: v20
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web assets
+        script: npm run build
+      - name: Sync web assets to Capacitor iOS
+        script: npx cap sync ios
+      - name: Install CocoaPods dependencies
+        script: cd ios/App && pod install
+      - name: Set up keychain
+        script: keychain initialize
+      - name: Fetch signing certificates and provisioning profiles
+        script: app-store-connect fetch-signing-files com.parsec.game --type IOS_APP_STORE --create
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+      - name: Apply provisioning profiles to Xcode project
+        script: xcode-project use-profiles
+      - name: Build .ipa
+        script: |
+          xcode-project build-ipa \
+            --workspace ios/App/App.xcworkspace \
+            --scheme App
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

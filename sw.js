@@ -1,39 +1,26 @@
-const CACHE_NAME = 'step-rogue-v1';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/css/app.css',
-  '/css/menu.css',
-  '/js/app.js',
-  '/js/menu.js',
-  '/js/modules/sync-steps.js',
-  '/js/modules/open-crate.js',
-  '/js/modules/settings.js',
-  '/js/modules/play.js',
-  '/assets/icons/icon.svg',
-];
+const CACHE_NAME = 'parsec-v1';
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
-  );
-  self.skipWaiting();
-});
+self.addEventListener('install', () => self.skipWaiting());
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      )
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((cached) => cached ?? fetch(event.request))
+self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(e.request);
+      const fresh = fetch(e.request).then((res) => {
+        if (res.ok) cache.put(e.request, res.clone());
+        return res;
+      });
+      return cached ?? fresh;
+    })
   );
 });

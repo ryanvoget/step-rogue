@@ -50,3 +50,7 @@ body {
   position: relative;
   overflow: hidden;
 }
+
+.hidden {
+  display: none !important;
+}

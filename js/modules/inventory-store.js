@@ -1,4 +1,4 @@
-const KEY = 'stepRogue_inventory';
+const KEY = 'parsec_inventory';
 
 export function getInventory() {
   try {

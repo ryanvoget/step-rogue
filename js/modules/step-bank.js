@@ -1,4 +1,4 @@
-const BANK_KEY = 'stepRogue_stepBank';
+const BANK_KEY = 'parsec_stepBank';
 
 function load() {
   try {
