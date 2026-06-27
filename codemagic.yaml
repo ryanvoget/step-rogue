@@ -26,6 +26,8 @@ workflows:
         script: keychain add-certificates
       - name: Apply provisioning profiles to Xcode project
         script: xcode-project use-profiles
+      - name: Set build number
+        script: cd ios/App && xcrun agvtool new-version -all $CM_BUILD_NUMBER
       - name: Build .ipa
         script: |
           xcode-project build-ipa \
