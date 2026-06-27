@@ -1,0 +1,122 @@
+.char-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.char-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px 12px;
+  flex-shrink: 0;
+}
+
+.char-back-btn {
+  background: none;
+  border: none;
+  color: var(--accent-secondary);
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.char-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.char-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 24px;
+  background: radial-gradient(ellipse at 50% 60%, rgba(124, 58, 237, 0.15) 0%, transparent 70%);
+}
+
+#char-canvas {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.char-options {
+  flex-shrink: 0;
+  padding: 16px 20px 36px;
+  border-top: 1px solid var(--border-color);
+}
+
+.char-options-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+
+.char-shirt-picker {
+  display: flex;
+  gap: 10px;
+}
+
+.char-shirt-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 12px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.char-shirt-btn:active {
+  transform: scale(0.96);
+}
+
+.char-shirt-btn.selected {
+  border-color: var(--accent-primary);
+  background: rgba(124, 58, 237, 0.1);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
+
+.char-shirt-img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.char-shirt-swatch {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #5ba3e8 0%, #2e6db8 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.char-shirt-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.03em;
+}
+
+.char-shirt-btn.selected .char-shirt-label {
+  color: var(--text-primary);
+}
