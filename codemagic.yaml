@@ -5,9 +5,6 @@ workflows:
     integrations:
       app_store_connect: App Store Connect
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.parsec.game
       node: v20
       xcode: latest
       cocoapods: default
@@ -23,7 +20,11 @@ workflows:
       - name: Set up keychain
         script: keychain initialize
       - name: Fetch signing certificates and provisioning profiles
-        script: app-store-connect fetch-signing-files com.parsec.game --type IOS_APP_STORE --create
+        script: |
+          app-store-connect fetch-signing-files "com.parsec.game" \
+            --platform IOS \
+            --type IOS_APP_STORE \
+            --create
       - name: Add certificates to keychain
         script: keychain add-certificates
       - name: Apply provisioning profiles to Xcode project
