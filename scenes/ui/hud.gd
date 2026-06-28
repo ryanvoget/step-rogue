@@ -22,7 +22,7 @@ func _ready() -> void:
 
 func _setup_equipped_icons() -> void:
 	for key in ["equipped_weapon", "equipped_equipment", "equipped_defensive"]:
-		var item: Dictionary = SaveManager.get(key)
+		var item: Dictionary = SaveManager.get_slot(key)
 		var slot_bg := ColorRect.new()
 		slot_bg.custom_minimum_size = Vector2(38, 38)
 		slot_bg.color = Color(0.08, 0.1, 0.15, 0.85)

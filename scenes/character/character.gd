@@ -69,7 +69,7 @@ func _setup_slots() -> void:
 func _refresh_slot(idx: int) -> void:
 	var slot     = SLOTS[idx]
 	var btn      = _slot_btns[idx] as Button
-	var equipped: Dictionary = SaveManager.get(slot["key"])
+	var equipped: Dictionary = SaveManager.get_slot(slot["key"])
 	btn.icon        = null
 	btn.expand_icon = false
 	if equipped.is_empty():
@@ -135,7 +135,7 @@ func _open_picker(slot_idx: int) -> void:
 	title_row.add_child(close_btn)
 
 	# Unequip button if slot is filled
-	var cur: Dictionary = SaveManager.get(slot["key"])
+	var cur: Dictionary = SaveManager.get_slot(slot["key"])
 	if not cur.is_empty():
 		var unequip_btn := Button.new()
 		unequip_btn.text = "Unequip  (" + cur["name"] + ")"
@@ -170,14 +170,12 @@ func _open_picker(slot_idx: int) -> void:
 			grid.add_child(item_btn)
 
 func _on_equip(slot_idx: int, item: Dictionary, overlay: Control) -> void:
-	SaveManager.set(SLOTS[slot_idx]["key"], item)
-	SaveManager.save()
+	SaveManager.set_slot(SLOTS[slot_idx]["key"], item)
 	_refresh_slot(slot_idx)
 	overlay.queue_free()
 
 func _on_unequip(slot_idx: int, overlay: Control) -> void:
-	SaveManager.set(SLOTS[slot_idx]["key"], {})
-	SaveManager.save()
+	SaveManager.set_slot(SLOTS[slot_idx]["key"], {})
 	_refresh_slot(slot_idx)
 	overlay.queue_free()
 

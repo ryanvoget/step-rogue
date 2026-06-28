@@ -42,6 +42,20 @@ func clear_inventory() -> void:
 	inventory.clear()
 	_save()
 
+func get_slot(key: String) -> Dictionary:
+	match key:
+		"equipped_weapon":    return equipped_weapon
+		"equipped_equipment": return equipped_equipment
+		"equipped_defensive": return equipped_defensive
+	return {}
+
+func set_slot(key: String, value: Dictionary) -> void:
+	match key:
+		"equipped_weapon":    equipped_weapon = value
+		"equipped_equipment": equipped_equipment = value
+		"equipped_defensive": equipped_defensive = value
+	_save()
+
 func save() -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	file.store_string(JSON.stringify({
