@@ -1,0 +1,92 @@
+[gd_scene format=3 uid="uid://bhud00000001"]
+
+[ext_resource type="Script" uid="uid://c7cj3r2pmt3ih" path="res://scenes/ui/hud.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer" unique_id=1515976067]
+script = ExtResource("1_hud")
+
+[node name="Panel" type="PanelContainer" parent="." unique_id=873258207]
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 230.0
+offset_bottom = 115.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel" unique_id=458930215]
+layout_mode = 2
+
+[node name="HealthBar" type="ProgressBar" parent="Panel/VBox" unique_id=1869468034]
+custom_minimum_size = Vector2(0, 22)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 100.0
+
+[node name="FloorLabel" type="Label" parent="Panel/VBox" unique_id=1824042223]
+layout_mode = 2
+text = "Floor 1"
+
+[node name="StepLabel" type="Label" parent="Panel/VBox" unique_id=390100250]
+layout_mode = 2
+text = "Steps: 0"
+
+[node name="EquippedRow" type="HBoxContainer" parent="."]
+offset_left = 10.0
+offset_top = 120.0
+offset_right = 150.0
+offset_bottom = 162.0
+theme_override_constants/separation = 4
+
+[node name="ClearedLabel" type="Label" parent="." unique_id=1234567890]
+offset_left = 90.0
+offset_top = 390.0
+offset_right = 390.0
+offset_bottom = 460.0
+theme_override_font_sizes/font_size = 32
+horizontal_alignment = 1
+text = "Room Cleared!"
+visible = false
+
+[node name="BtnMenu" type="Button" parent="."]
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -90.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 46.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 14
+text = "‹ Menu"
+
+[node name="StartOverlay" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Bg" type="ColorRect" parent="StartOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.0, 0.0, 0.0, 0.65)
+
+[node name="BtnStart" type="Button" parent="StartOverlay"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -110.0
+offset_top = -44.0
+offset_right = 110.0
+offset_bottom = 44.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 30
+text = "Start"

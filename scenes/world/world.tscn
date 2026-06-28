@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://bworld000001"]
+
+[ext_resource type="Script" uid="uid://vrur08pt1jvq" path="res://scenes/world/world.gd" id="1_world"]
+[ext_resource type="PackedScene" uid="uid://broom0000001" path="res://scenes/rooms/room.tscn" id="2_room"]
+[ext_resource type="PackedScene" uid="uid://bhud00000001" path="res://scenes/ui/hud.tscn" id="3_hud"]
+
+[node name="World" type="Node2D" unique_id=57139193]
+script = ExtResource("1_world")
+
+[node name="Room" parent="." unique_id=1275036969 instance=ExtResource("2_room")]
+
+[node name="Enemies" type="Node2D" parent="." unique_id=1233220272]
+
+[node name="Bullets" type="Node2D" parent="." unique_id=1839693878]
+
+[node name="HUD" parent="." unique_id=43320705 instance=ExtResource("3_hud")]

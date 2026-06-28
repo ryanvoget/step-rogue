@@ -1,0 +1,47 @@
+[gd_scene format=3 uid="uid://bsandbox0001"]
+
+[ext_resource type="Script" path="res://scenes/sandbox/sandbox.gd" id="1_sandbox"]
+[ext_resource type="PackedScene" uid="uid://broom0000001" path="res://scenes/rooms/room.tscn" id="2_room"]
+
+[node name="Sandbox" type="Node2D"]
+script = ExtResource("1_sandbox")
+
+[node name="Room" parent="." instance=ExtResource("2_room")]
+
+[node name="Bullets" type="Node2D" parent="."]
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="BtnMenu" type="Button" parent="HUD"]
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -90.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 46.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 14
+text = "‹ Menu"
+
+[node name="EquippedRow" type="HBoxContainer" parent="HUD"]
+offset_left = 10.0
+offset_top = 44.0
+offset_right = 150.0
+offset_bottom = 86.0
+theme_override_constants/separation = 4
+
+[node name="ModeLabel" type="Label" parent="HUD"]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 150.0
+offset_bottom = 36.0
+theme_override_font_sizes/font_size = 13
+text = "🧪 SANDBOX"

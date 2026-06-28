@@ -1,0 +1,138 @@
+[gd_scene format=3 uid="uid://bcharacter0001"]
+
+[ext_resource type="Script" path="res://scenes/character/character.gd" id="1_character"]
+[ext_resource type="Shader" path="res://scenes/character/shirt_recolor.gdshader" id="2_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
+shader = ExtResource("2_shader")
+shader_parameter/target_hue = 0.583
+
+[node name="CharacterScreen" type="Control"]
+script = ExtResource("1_character")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.051, 0.067, 0.09, 1.0)
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 48.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 16
+
+[node name="Header" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="BtnBack" type="Button" parent="VBox/Header"]
+layout_mode = 2
+custom_minimum_size = Vector2(80, 44)
+theme_override_font_sizes/font_size = 17
+text = "‹ Back"
+
+[node name="Title" type="Label" parent="VBox/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 22
+vertical_alignment = 1
+text = "Character"
+
+[node name="ContentRow" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="CharCanvas" type="Control" parent="VBox/ContentRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="SlotsCol" type="VBoxContainer" parent="VBox/ContentRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_constants/separation = 10
+
+[node name="SlotsLabel" type="Label" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "EQUIPPED"
+modulate = Color(0.545, 0.584, 0.619, 1.0)
+
+[node name="Slot0" type="Button" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 76)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+
+[node name="Slot1" type="Button" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 76)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+
+[node name="Slot2" type="Button" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 76)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+
+[node name="ShirtSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="ShirtLabel" type="Label" parent="VBox/ShirtSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "SHIRT COLOR"
+modulate = Color(0.545, 0.584, 0.619, 1.0)
+
+[node name="ShirtPicker" type="HBoxContainer" parent="VBox/ShirtSection"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BtnBlue" type="Button" parent="VBox/ShirtSection/ShirtPicker"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 72)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Blue"
+
+[node name="BtnRed" type="Button" parent="VBox/ShirtSection/ShirtPicker"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 72)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Red"
+
+[node name="BtnYellow" type="Button" parent="VBox/ShirtSection/ShirtPicker"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 72)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Yellow"
+
+[node name="BtnGreen" type="Button" parent="VBox/ShirtSection/ShirtPicker"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 72)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Green"
+
+[node name="PlayerSprite" type="AnimatedSprite2D" parent="."]
+material = SubResource("ShaderMaterial_1")

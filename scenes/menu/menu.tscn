@@ -1,0 +1,126 @@
+[gd_scene format=3 uid="uid://bmenu000001"]
+
+[ext_resource type="Script" path="res://scenes/menu/menu.gd" id="1_menu"]
+[ext_resource type="Texture2D" path="res://icon.svg" id="2_icon"]
+
+[node name="MenuScreen" type="Control"]
+script = ExtResource("1_menu")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.051, 0.067, 0.09, 1.0)
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 48.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 12
+
+[node name="Header" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Logo" type="TextureRect" parent="VBox/Header"]
+layout_mode = 2
+custom_minimum_size = Vector2(64, 64)
+size_flags_horizontal = 4
+texture = ExtResource("2_icon")
+stretch_mode = 5
+
+[node name="Title" type="Label" parent="VBox/Header"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
+horizontal_alignment = 1
+text = "Step Rogue"
+
+[node name="Subtitle" type="Label" parent="VBox/Header"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+horizontal_alignment = 1
+text = "Walk to adventure"
+
+[node name="Spacer" type="Control" parent="VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 28)
+
+[node name="Buttons" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="PlayRow" type="HBoxContainer" parent="VBox/Buttons"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BtnPlay" type="Button" parent="VBox/Buttons/PlayRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 64)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 20
+text = "⚔️  Play"
+
+[node name="BtnTest" type="Button" parent="VBox/Buttons/PlayRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 64)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "🧪  Test"
+
+[node name="BtnSyncSteps" type="Button" parent="VBox/Buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "👟  Sync Steps"
+
+[node name="BtnOpenCrate" type="Button" parent="VBox/Buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "📦  Open Crate"
+
+[node name="BtnInventory" type="Button" parent="VBox/Buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "🎒  Inventory"
+
+[node name="BtnCharacter" type="Button" parent="VBox/Buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "🧑  Character"
+
+[node name="BtnSettings" type="Button" parent="VBox/Buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "⚙️  Settings"
+
+[node name="Expand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Footer" type="Label" parent="VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
+text = "v0.1.0"
