@@ -1,0 +1,9 @@
+[config]
+name="HealthConnectBridge"
+binary_type="local"
+binary="HealthConnectBridge.aar"
+
+[dependencies]
+local=[]
+remote=[]
+custom_maven_repos=[]

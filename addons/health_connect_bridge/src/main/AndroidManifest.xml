@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Health Connect step read permission (Android 13+) -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <!-- Needed for step data on older Android versions -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
+</manifest>

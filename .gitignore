@@ -5,4 +5,5 @@ dist/
 Thumbs.db
 # Godot 4+ specific ignores
 .godot/
-/android/
+/android/build/
+/android/.gradle/
