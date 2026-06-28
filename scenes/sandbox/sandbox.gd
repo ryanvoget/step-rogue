@@ -14,6 +14,8 @@ func _ready() -> void:
 	_spawn_dummy()
 	$HUD/BtnMenu.pressed.connect(_on_menu_pressed)
 	_setup_equipped_icons()
+	if OS.has_feature("ios") or OS.has_feature("android"):
+		add_child(preload("res://scenes/ui/mobile_controls.tscn").instantiate())
 
 func _setup_equipped_icons() -> void:
 	var row: HBoxContainer = $HUD/EquippedRow

@@ -18,6 +18,8 @@ func _ready() -> void:
 	GameManager.register_bullets_container(_bullets)
 	_spawn_player()
 	_hud.game_started.connect(_spawn_enemies)
+	if OS.has_feature("ios") or OS.has_feature("android"):
+		add_child(preload("res://scenes/ui/mobile_controls.tscn").instantiate())
 
 func _exit_tree() -> void:
 	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT)

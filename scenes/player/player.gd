@@ -76,12 +76,23 @@ func _setup_sprite() -> void:
 func _physics_process(_delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	velocity = dir * SPEED
-	var to_mouse := get_global_mouse_position() - global_position
-	_mouse_angle = to_mouse.angle()
+
+	if OS.has_feature("ios") or OS.has_feature("android"):
+		# On mobile, aim in the direction of movement; hold last angle when still.
+		if dir.length() > 0.1:
+			_mouse_angle = dir.angle()
+	else:
+		var to_mouse := get_global_mouse_position() - global_position
+		_mouse_angle = to_mouse.angle()
+
 	_spawn_point.position = Vector2(22, 0).rotated(_mouse_angle)
 	move_and_slide()
 	_update_sprite(dir)
 	_update_weapon()
+
+	# Auto-fire while the shoot action is held (works for keyboard hold and touch).
+	if Input.is_action_pressed("shoot"):
+		_try_shoot()
 
 func _setup_weapon() -> void:
 	_weapon.texture = load("res://assets/sprites/assault_rifle.png")
