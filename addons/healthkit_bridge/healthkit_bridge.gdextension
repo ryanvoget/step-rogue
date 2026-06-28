@@ -1,0 +1,12 @@
+[configuration]
+entry_symbol = "healthkit_bridge_init"
+compatibility_minimum = "4.1"
+reloadable = false
+
+[libraries]
+ios.debug.arm64   = "res://addons/healthkit_bridge/bin/HealthKitBridge.xcframework"
+ios.release.arm64 = "res://addons/healthkit_bridge/bin/HealthKitBridge.xcframework"
+
+[dependencies]
+ios.debug.arm64   = {}
+ios.release.arm64 = {}
