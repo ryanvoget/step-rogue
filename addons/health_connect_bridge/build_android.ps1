@@ -50,7 +50,7 @@ try {
 
 # 4 — Copy AAR to android/plugins/
 New-Item -ItemType Directory -Force $OutputDir | Out-Null
-$src = Join-Path $ScriptDir "build\outputs\aar\health_connect_bridge-release.aar"
+$src = Join-Path $ScriptDir "build\outputs\aar\HealthConnectBridge-release.aar"
 $dst = Join-Path $OutputDir "HealthConnectBridge.aar"
 Copy-Item $src $dst -Force
 
