@@ -11,10 +11,10 @@ FW_NAME="HealthKitBridge"
 echo "==> Building $FW_NAME for iOS arm64..."
 swift build \
     -c release \
-    --triple arm64-apple-ios16.0 \
+    --triple arm64-apple-ios17.0 \
     --package-path "$SCRIPT_DIR"
 
-DYLIB="$BUILD_DIR/arm64-apple-ios16.0/release/lib${FW_NAME}.dylib"
+DYLIB="$BUILD_DIR/arm64-apple-ios17.0/release/lib${FW_NAME}.dylib"
 if [ ! -f "$DYLIB" ]; then
     echo "ERROR: library not found at $DYLIB"
     exit 1

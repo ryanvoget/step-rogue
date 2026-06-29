@@ -6,7 +6,7 @@ import PackageDescription
 // https://github.com/migueldeicaza/SwiftGodot/releases for the matching tag.
 let package = Package(
     name: "HealthKitBridge",
-    platforms: [.iOS(.v16)],
+    platforms: [.iOS(.v17)],
     products: [
         .library(name: "HealthKitBridge", type: .dynamic, targets: ["HealthKitBridge"])
     ],
