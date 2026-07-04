@@ -38,7 +38,7 @@ func _reposition_sprite() -> void:
 	_sprite.position = _canvas.get_global_rect().get_center()
 
 func _setup_sprite() -> void:
-	var tex: Texture2D = load("res://assets/sprites/idle_spritesheet.png")
+	var tex: Texture2D = load("res://assets/Sprites/idle_spritesheet.png")
 	var sf := SpriteFrames.new()
 	sf.remove_animation("default")
 	sf.add_animation("idle")

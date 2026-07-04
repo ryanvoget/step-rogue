@@ -9,6 +9,7 @@ struct ParsecApp: App {
         initHookCb = { level in
             previous?(level)
             if level == .scene {
+                print("[ParsecApp] registering HealthKitBridge at .scene level")
                 register(type: HealthKitBridge.self)
             }
         }

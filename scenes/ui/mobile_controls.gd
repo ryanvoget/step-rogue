@@ -1,68 +1,94 @@
 extends CanvasLayer
 
-const JOYSTICK_RADIUS := 60.0
-const KNOB_RADIUS     := 28.0
-const DEAD_ZONE       := 12.0
+const JOYSTICK_RADIUS := 72.0
+const KNOB_RADIUS     := 32.0
+const DEAD_ZONE       := 10.0
 
-var _joystick_center := Vector2.ZERO
-var _shoot_rect      := Rect2.ZERO
+# ── Move joystick (left) ───────────────────────────────────────────────────
+var _joy_center:  Vector2 = Vector2.ZERO
+var _joy_touch:   int = -1
+var _knob_offset: Vector2 = Vector2.ZERO
 
-var _joystick_touch  := -1
-var _shoot_touch     := -1
-var _knob_offset     := Vector2.ZERO
+# ── Aim joystick (right) ───────────────────────────────────────────────────
+var _aim_center:  Vector2 = Vector2.ZERO
+var _aim_touch:   int = -1
+var _aim_offset:  Vector2 = Vector2.ZERO
 
-var _draw_node: Node2D
+var _draw_node: Node2D = null
+var _ready_done := false
 
 func _ready() -> void:
-	layer = 10
+	layer = 20
 	process_mode = Node.PROCESS_MODE_ALWAYS
-
-	# Position controls relative to the actual visible rect so they adapt
-	# to any device resolution and to the landscape rotation the world uses.
-	var vp := get_viewport().get_visible_rect().size
-	_joystick_center = Vector2(vp.x * 0.15, vp.y * 0.78)
-	_shoot_rect      = Rect2(vp.x * 0.5, vp.y * 0.25, vp.x * 0.5, vp.y * 0.65)
-
 	_draw_node = Node2D.new()
 	add_child(_draw_node)
 	_draw_node.draw.connect(_on_draw)
+	call_deferred("_init_positions")
+
+func _init_positions() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	_joy_center = Vector2(vp.x * 0.18, vp.y * 0.82)
+	_aim_center = Vector2(vp.x * 0.82, vp.y * 0.82)
+	_ready_done = true
 	_draw_node.queue_redraw()
 
+# ── Input ─────────────────────────────────────────────────────────────────
+
 func _input(event: InputEvent) -> void:
+	if not _ready_done:
+		return
 	if event is InputEventScreenTouch:
 		_handle_touch(event)
 	elif event is InputEventScreenDrag:
 		_handle_drag(event)
 
 func _handle_touch(e: InputEventScreenTouch) -> void:
-	var mid_x := get_viewport().get_visible_rect().size.x * 0.5
+	var left_half := get_viewport().get_visible_rect().size.x * 0.5
 	if e.pressed:
-		if _joystick_touch == -1 and e.position.x < mid_x:
-			_joystick_touch = e.index
+		if _joy_touch == -1 and e.position.x < left_half:
+			_joy_touch = e.index
 			_update_joystick(e.position)
-		elif _shoot_touch == -1 and _shoot_rect.has_point(e.position):
-			_shoot_touch = e.index
-			Input.action_press("shoot")
+		elif _aim_touch == -1 and e.position.x >= left_half:
+			_aim_touch = e.index
+			_update_aim(e.position)
 	else:
-		if e.index == _joystick_touch:
-			_joystick_touch = -1
-			_knob_offset    = Vector2.ZERO
+		if e.index == _joy_touch:
+			_joy_touch   = -1
+			_knob_offset = Vector2.ZERO
 			_release_move_actions()
 			_draw_node.queue_redraw()
-		elif e.index == _shoot_touch:
-			_shoot_touch = -1
+		elif e.index == _aim_touch:
+			_aim_touch  = -1
+			_aim_offset = Vector2.ZERO
+			GameManager.mobile_aim_dir = Vector2.ZERO
 			Input.action_release("shoot")
+			_draw_node.queue_redraw()
 
 func _handle_drag(e: InputEventScreenDrag) -> void:
-	if e.index == _joystick_touch:
+	if e.index == _joy_touch:
 		_update_joystick(e.position)
+	elif e.index == _aim_touch:
+		_update_aim(e.position)
 
 func _update_joystick(pos: Vector2) -> void:
-	var delta := pos - _joystick_center
+	var delta := pos - _joy_center
 	if delta.length() > JOYSTICK_RADIUS:
 		delta = delta.normalized() * JOYSTICK_RADIUS
 	_knob_offset = delta
 	_apply_move(delta)
+	_draw_node.queue_redraw()
+
+func _update_aim(pos: Vector2) -> void:
+	var delta := pos - _aim_center
+	if delta.length() > JOYSTICK_RADIUS:
+		delta = delta.normalized() * JOYSTICK_RADIUS
+	_aim_offset = delta
+	if delta.length() >= DEAD_ZONE:
+		GameManager.mobile_aim_dir = delta.normalized()
+		Input.action_press("shoot")
+	else:
+		GameManager.mobile_aim_dir = Vector2.ZERO
+		Input.action_release("shoot")
 	_draw_node.queue_redraw()
 
 func _apply_move(offset: Vector2) -> void:
@@ -79,12 +105,26 @@ func _release_move_actions() -> void:
 	for a in ["move_left", "move_right", "move_up", "move_down"]:
 		Input.action_release(a)
 
+# ── Drawing ───────────────────────────────────────────────────────────────
+
 func _on_draw() -> void:
-	var knob := _joystick_center + _knob_offset
-	_draw_node.draw_arc(_joystick_center, JOYSTICK_RADIUS, 0.0, TAU, 32, Color(1, 1, 1, 0.2), 3.0)
-	_draw_node.draw_circle(knob, KNOB_RADIUS, Color(1, 1, 1, 0.28))
-	# Faint shoot zone hint
-	_draw_node.draw_rect(
-		Rect2(_shoot_rect.position + Vector2(8, 8), _shoot_rect.size - Vector2(16, 16)),
-		Color(1, 1, 1, 0.04)
-	)
+	if not _ready_done:
+		return
+
+	# ── Move joystick (left) ──
+	var knob := _joy_center + _knob_offset
+	_draw_node.draw_circle(_joy_center, JOYSTICK_RADIUS, Color(1, 1, 1, 0.08))
+	_draw_node.draw_arc(_joy_center, JOYSTICK_RADIUS, 0.0, TAU, 48, Color(1, 1, 1, 0.55), 2.5)
+	_draw_node.draw_circle(_joy_center, 5.0, Color(1, 1, 1, 0.25))
+	var knob_col := Color(1, 1, 1, 0.70) if _joy_touch != -1 else Color(1, 1, 1, 0.45)
+	_draw_node.draw_circle(knob, KNOB_RADIUS, knob_col)
+
+	# ── Aim joystick (right) ──
+	var aim_knob  := _aim_center + _aim_offset
+	var is_firing := _aim_touch != -1 and GameManager.mobile_aim_dir.length() > 0.0
+	var rim_col   := Color(1.0, 0.55, 0.2, 0.90) if is_firing else Color(1.0, 0.45, 0.15, 0.55)
+	var knob2_col := Color(1.0, 0.55, 0.15, 0.85) if _aim_touch != -1 else Color(1.0, 0.45, 0.15, 0.45)
+	_draw_node.draw_circle(_aim_center, JOYSTICK_RADIUS, Color(1.0, 0.4, 0.1, 0.08))
+	_draw_node.draw_arc(_aim_center, JOYSTICK_RADIUS, 0.0, TAU, 48, rim_col, 2.5)
+	_draw_node.draw_circle(_aim_center, 5.0, Color(1.0, 0.5, 0.2, 0.25))
+	_draw_node.draw_circle(aim_knob, KNOB_RADIUS, knob2_col)

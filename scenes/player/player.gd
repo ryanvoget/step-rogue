@@ -36,8 +36,8 @@ func _ready() -> void:
 	_setup_weapon()
 
 func _setup_sprite() -> void:
-	var idle_tex: Texture2D = load("res://assets/sprites/idle_spritesheet.png")
-	var run_tex:  Texture2D = load("res://assets/sprites/run_spritesheet.png")
+	var idle_tex: Texture2D = load("res://assets/Sprites/idle_spritesheet.png")
+	var run_tex:  Texture2D = load("res://assets/Sprites/run_spritesheet.png")
 	var sf := SpriteFrames.new()
 	sf.remove_animation("default")
 
@@ -77,13 +77,19 @@ func _physics_process(_delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	velocity = dir * SPEED
 
-	if OS.has_feature("ios") or OS.has_feature("android"):
-		# On mobile, aim in the direction of movement; hold last angle when still.
+	# GameManager.mobile_aim_dir is set by the right joystick in mobile_controls.gd.
+	# It's zero when the joystick is idle, non-zero when pushed past the dead zone.
+	if GameManager.mobile_aim_dir.length() > 0.1:
+		_mouse_angle = GameManager.mobile_aim_dir.angle()
+	elif OS.has_feature("ios") or OS.has_feature("android"):
+		# Mobile, no aim joystick active: face movement direction, hold last angle when still.
 		if dir.length() > 0.1:
 			_mouse_angle = dir.angle()
 	else:
+		# Desktop: aim at mouse cursor.
 		var to_mouse := get_global_mouse_position() - global_position
-		_mouse_angle = to_mouse.angle()
+		if to_mouse.length() > 1.0:
+			_mouse_angle = to_mouse.angle()
 
 	_spawn_point.position = Vector2(22, 0).rotated(_mouse_angle)
 	move_and_slide()
@@ -95,7 +101,7 @@ func _physics_process(_delta: float) -> void:
 		_try_shoot()
 
 func _setup_weapon() -> void:
-	_weapon.texture = load("res://assets/sprites/assault_rifle.png")
+	_weapon.texture = load("res://assets/Sprites/assault_rifle.png")
 	_weapon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 func _apply_shirt_color() -> void:
@@ -124,6 +130,10 @@ func _update_sprite(dir: Vector2) -> void:
 	_sprite.flip_h = false
 
 func _unhandled_input(event: InputEvent) -> void:
+	# On mobile, touch-to-mouse emulation converts every tap to a left mouse button
+	# press. Skip that path — shooting is handled by mobile_controls + _physics_process.
+	if OS.has_feature("ios") or OS.has_feature("android"):
+		return
 	if event is InputEventMouseButton \
 			and event.button_index == MOUSE_BUTTON_LEFT \
 			and event.pressed:

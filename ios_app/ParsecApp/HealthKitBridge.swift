@@ -1,12 +1,9 @@
 import SwiftGodot
 import HealthKit
 
-// Registered with Godot via initHookCb in ParsecApp.init().
-// GDScript accesses this class by name ("HealthKitBridge") through ClassDB —
-// the same interface sync_steps.gd already uses.
 @Godot
 class HealthKitBridge: RefCounted {
-    @Signal var stepsReady: SignalWith1Argument<Int>
+    @Signal var stepsReady: SignalWithArguments<Int>
     @Signal var healthUnavailable: SimpleSignal
 
     private var healthStore: HKHealthStore?
@@ -19,14 +16,18 @@ class HealthKitBridge: RefCounted {
 
     @Callable
     func requestAndFetch() {
+        print("[HKBridge] requestAndFetch called, healthStore=\(healthStore != nil)")
         guard let store = healthStore else {
-            emit(signal: HealthKitBridge.healthUnavailable)
+            print("[HKBridge] no healthStore — emitting health_unavailable")
+            healthUnavailable.emit()
             return
         }
         let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-        store.requestAuthorization(toShare: [], read: [stepType]) { [weak self] success, _ in
+        print("[HKBridge] requesting HealthKit authorization")
+        store.requestAuthorization(toShare: [], read: [stepType]) { [weak self] success, error in
+            print("[HKBridge] auth callback success=\(success) error=\(String(describing: error))")
             guard let self, success else {
-                self?.emit(signal: HealthKitBridge.healthUnavailable)
+                self?.healthUnavailable.emit()
                 return
             }
             self.fetchSteps(store: store, stepType: stepType)
@@ -44,7 +45,7 @@ class HealthKitBridge: RefCounted {
         ) { [weak self] _, result, _ in
             let count = Int(result?.sumQuantity()?.doubleValue(for: .count()) ?? 0)
             DispatchQueue.main.async {
-                self?.emit(signal: HealthKitBridge.stepsReady, count)
+                self?.stepsReady.emit(count)
             }
         }
         store.execute(query)

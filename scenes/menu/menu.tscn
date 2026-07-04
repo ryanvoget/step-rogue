@@ -1,7 +1,6 @@
 [gd_scene format=3 uid="uid://bmenu000001"]
 
 [ext_resource type="Script" path="res://scenes/menu/menu.gd" id="1_menu"]
-[ext_resource type="Texture2D" path="res://icon.svg" id="2_icon"]
 
 [node name="MenuScreen" type="Control"]
 script = ExtResource("1_menu")
@@ -37,22 +36,15 @@ theme_override_constants/separation = 6
 
 [node name="Logo" type="TextureRect" parent="VBox/Header"]
 layout_mode = 2
-custom_minimum_size = Vector2(64, 64)
+custom_minimum_size = Vector2(128, 128)
 size_flags_horizontal = 4
-texture = ExtResource("2_icon")
 stretch_mode = 5
 
 [node name="Title" type="Label" parent="VBox/Header"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 34
 horizontal_alignment = 1
-text = "Step Rogue"
-
-[node name="Subtitle" type="Label" parent="VBox/Header"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 15
-horizontal_alignment = 1
-text = "Walk to adventure"
+text = "Parsec"
 
 [node name="Spacer" type="Control" parent="VBox"]
 layout_mode = 2

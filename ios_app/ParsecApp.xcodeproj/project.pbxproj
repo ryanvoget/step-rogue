@@ -13,6 +13,7 @@
 		AA0000000004 /* SwiftGodotKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000082 /* SwiftGodotKit */; };
 		AA0000000006 /* ../Parsec.pck in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000017 /* ../Parsec.pck */; };
 		AA0000000007 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000018 /* PrivacyInfo.xcprivacy */; };
+		AA0000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000019 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 		AA0000000016 /* ParsecApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ParsecApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000017 /* ../Parsec.pck */ = {isa = PBXFileReference; lastKnownFileType = file; path = ../Parsec.pck; sourceTree = "<group>"; };
 		AA0000000018 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA0000000019 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +58,7 @@
 				AA0000000014 /* Info.plist */,
 				AA0000000015 /* ParsecApp.entitlements */,
 				AA0000000018 /* PrivacyInfo.xcprivacy */,
+				AA0000000019 /* Assets.xcassets */,
 			);
 			path = ParsecApp;
 			sourceTree = "<group>";
@@ -133,6 +136,7 @@
 			files = (
 				AA0000000006 /* ../Parsec.pck in Resources */,
 				AA0000000007 /* PrivacyInfo.xcprivacy in Resources */,
+				AA0000000008 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

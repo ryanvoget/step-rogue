@@ -7,6 +7,9 @@ signal player_died
 
 var current_floor: int = 1
 
+# Set by mobile_controls when the right aim-joystick is pushed; zero when idle.
+var mobile_aim_dir: Vector2 = Vector2.ZERO
+
 var step_bank: int:
 	get: return SaveManager.step_bank
 	set(v): SaveManager.step_bank = v

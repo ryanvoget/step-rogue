@@ -14,15 +14,11 @@ var _enemies_alive := 0
 var _clearing      := false
 
 func _ready() -> void:
-	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_LANDSCAPE)
 	GameManager.register_bullets_container(_bullets)
 	_spawn_player()
 	_hud.game_started.connect(_spawn_enemies)
-	if OS.has_feature("ios") or OS.has_feature("android"):
+	if OS.has_feature("ios") or OS.has_feature("android") or OS.has_feature("editor"):
 		add_child(preload("res://scenes/ui/mobile_controls.tscn").instantiate())
-
-func _exit_tree() -> void:
-	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT)
 
 func _spawn_player() -> void:
 	var p: CharacterBody2D = PLAYER_SCENE.instantiate()

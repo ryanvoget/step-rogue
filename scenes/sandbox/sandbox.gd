@@ -8,13 +8,12 @@ const BULLET_SCENE := preload("res://scenes/bullets/bullet.tscn")
 @onready var _bullets: Node   = $Bullets
 
 func _ready() -> void:
-	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_LANDSCAPE)
 	GameManager.register_bullets_container(_bullets)
 	_spawn_player()
 	_spawn_dummy()
 	$HUD/BtnMenu.pressed.connect(_on_menu_pressed)
 	_setup_equipped_icons()
-	if OS.has_feature("ios") or OS.has_feature("android"):
+	if OS.has_feature("ios") or OS.has_feature("android") or OS.has_feature("editor"):
 		add_child(preload("res://scenes/ui/mobile_controls.tscn").instantiate())
 
 func _setup_equipped_icons() -> void:
@@ -32,9 +31,6 @@ func _setup_equipped_icons() -> void:
 			tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			slot_bg.add_child(tex_rect)
 		row.add_child(slot_bg)
-
-func _exit_tree() -> void:
-	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT)
 
 func _spawn_player() -> void:
 	var p: CharacterBody2D = PLAYER_SCENE.instantiate()
