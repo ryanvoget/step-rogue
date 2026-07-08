@@ -196,8 +196,8 @@ private final class HealthKitManager {
 
     enum StepError: Error { case unavailable, denied }
 
-    // Fetches total steps for each of the past 7 days (including today).
-    // Returns { "YYYY-MM-DD": stepCount } for days that have any steps.
+    // Fetches total steps for each of the past 6 days (including today) — matches
+    // the 6 day-boxes shown in sync_steps.gd. Returns { "YYYY-MM-DD": stepCount }.
     func requestWeekSteps(completion: @escaping (Result<[String: Int], StepError>) -> Void) {
         guard let store else {
             completion(.failure(.unavailable))
@@ -219,7 +219,7 @@ private final class HealthKitManager {
             let lock = NSLock()
             let group = DispatchGroup()
 
-            for offset in 0...6 {
+            for offset in 0...5 {
                 guard let day = calendar.date(byAdding: .day, value: -offset, to: today),
                       let nextDay = calendar.date(byAdding: .day, value: 1, to: day) else { continue }
                 let dateStr = formatter.string(from: day)

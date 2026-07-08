@@ -28,7 +28,7 @@ func process_synced_steps(steps_by_day: Dictionary) -> int:
 	for day in steps_by_day:
 		var hk_total := int(steps_by_day[day])
 		var already := int(synced_steps_by_day.get(day, 0))
-		var delta := max(0, hk_total - already)
+		var delta: int = max(0, hk_total - already)
 		if delta > 0:
 			synced_steps_by_day[day] = hk_total
 			total_new += delta

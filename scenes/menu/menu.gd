@@ -14,6 +14,7 @@ func _ready() -> void:
 	$VBox/Buttons/BtnInventory.pressed.connect(func(): SceneManager.go_to("res://scenes/inventory/inventory.tscn"))
 	$VBox/Buttons/BtnCharacter.pressed.connect(func(): SceneManager.go_to("res://scenes/character/character.tscn"))
 	$VBox/Buttons/BtnSettings.pressed.connect(func(): SceneManager.go_to("res://scenes/settings/settings.tscn"))
+	$VBox/Buttons/BtnInfo.pressed.connect(func(): SceneManager.go_to("res://scenes/info/info.tscn"))
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
@@ -39,6 +40,7 @@ func _handle_screen_touch(pixel_pos: Vector2) -> void:
 		$VBox/Buttons/BtnInventory,
 		$VBox/Buttons/BtnCharacter,
 		$VBox/Buttons/BtnSettings,
+		$VBox/Buttons/BtnInfo,
 	]
 	for btn in buttons:
 		if btn.get_global_rect().has_point(canvas_pos):

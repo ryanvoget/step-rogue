@@ -26,12 +26,25 @@ grow_horizontal = 0
 theme_override_font_sizes/font_size = 14
 text = "‹ Menu"
 
-[node name="EquippedRow" type="HBoxContainer" parent="HUD"]
+[node name="ItemPicker" type="HBoxContainer" parent="HUD"]
 offset_left = 10.0
 offset_top = 44.0
-offset_right = 150.0
+offset_right = 370.0
 offset_bottom = 86.0
-theme_override_constants/separation = 4
+theme_override_constants/separation = 8
+
+[node name="EquippedIcon" type="TextureRect" parent="HUD/ItemPicker"]
+custom_minimum_size = Vector2(38, 38)
+expand_mode = 3
+stretch_mode = 5
+
+[node name="TypeFilter" type="OptionButton" parent="HUD/ItemPicker"]
+custom_minimum_size = Vector2(100, 38)
+theme_override_font_sizes/font_size = 13
+
+[node name="ItemDropdown" type="OptionButton" parent="HUD/ItemPicker"]
+custom_minimum_size = Vector2(180, 38)
+theme_override_font_sizes/font_size = 13
 
 [node name="ModeLabel" type="Label" parent="HUD"]
 layout_mode = 1

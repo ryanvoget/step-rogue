@@ -129,7 +129,7 @@ func _refresh_day_boxes() -> void:
 		else:
 			var hk_total := int(_hk_by_day[key])
 			var already  := int(SaveManager.synced_steps_by_day.get(key, 0))
-			var unsynced := max(0, hk_total - already)
+			var unsynced: int = max(0, hk_total - already)
 			lbl_steps.text = "%d" % unsynced
 			if unsynced == 0:
 				lbl_steps.add_theme_color_override("font_color", Color(0.3, 0.75, 0.35))
@@ -162,7 +162,7 @@ func _sync_day(key: String) -> void:
 		return
 	var hk_total := int(_hk_by_day[key])
 	var already  := int(SaveManager.synced_steps_by_day.get(key, 0))
-	var unsynced := max(0, hk_total - already)
+	var unsynced: int = max(0, hk_total - already)
 	if unsynced == 0:
 		_show_feedback("info", "No new steps for %s." % key)
 		return
