@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://bhealdispenser001"]
+
+[ext_resource type="Script" path="res://scenes/heal_dispenser/heal_dispenser.gd" id="1_dispenser"]
+
+[node name="HealDispenser" type="Node2D"]
+script = ExtResource("1_dispenser")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 1

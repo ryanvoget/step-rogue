@@ -5,10 +5,15 @@ const SAVE_PATH := "user://save_data.json"
 var step_bank: int = 0
 var last_sync_date: String = ""
 var swift_request: String = ""
+# Polled by the iOS host (ContentView.swift) every 0.5s to lock the device orientation:
+# "portrait" for menus, "landscape" for the game/sandbox. Runtime-only (never persisted) —
+# set by SceneManager during game↔menu transitions. See SceneManager._change_scene_covered.
+var target_orientation: String = "portrait"
 var synced_steps_by_day: Dictionary = {}  # { "YYYY-MM-DD": steps_already_credited }
 var inventory: Array = []
 var shirt_color: String = "blue"
 var music_volume: float = 0.8
+var sfx_volume: float = 0.7
 var equipped_weapon: Dictionary = {}
 var equipped_equipment: Dictionary = {}
 var equipped_defensive: Dictionary = {}
@@ -84,6 +89,7 @@ func save() -> void:
 		"inventory": inventory,
 		"shirt_color": shirt_color,
 		"music_volume": music_volume,
+		"sfx_volume": sfx_volume,
 		"equipped_weapon": equipped_weapon,
 		"equipped_equipment": equipped_equipment,
 		"equipped_defensive": equipped_defensive,
@@ -107,6 +113,7 @@ func _load() -> void:
 	inventory            = parsed.get("inventory", [])
 	shirt_color    = parsed.get("shirt_color", "blue")
 	music_volume       = parsed.get("music_volume", 0.8)
+	sfx_volume         = parsed.get("sfx_volume", 0.7)
 	equipped_weapon    = parsed.get("equipped_weapon", {})
 	equipped_equipment = parsed.get("equipped_equipment", {})
 	equipped_defensive = parsed.get("equipped_defensive", {})

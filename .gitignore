@@ -21,3 +21,7 @@ ios_app/*.xcodeproj/project.xcworkspace/xcuserdata/
 ios_app/build/
 ios_app/*.xcodeproj/xcshareddata/swiftpm/Package.resolved
 ios_app/LocalPackages/**/.build/
+
+# Stray build artifacts
+ios_app/Parsec.pck
+/Debug/

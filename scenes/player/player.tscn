@@ -7,11 +7,15 @@ radius = 14.0
 height = 28.0
 
 [node name="Player" type="CharacterBody2D" unique_id=1704725705]
-collision_mask = 10
+collision_mask = 8
 script = ExtResource("1_player")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1497244712]
 shape = SubResource("CapsuleShape2D_1")
+
+[node name="Hoverboard" type="Sprite2D" parent="."]
+visible = false
+texture_filter = 1
 
 [node name="Sprite" type="AnimatedSprite2D" parent="."]
 

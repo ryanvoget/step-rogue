@@ -20,6 +20,7 @@ var _dragging: bool = false
 const _DRAG_THRESHOLD := 12.0
 
 func _ready() -> void:
+	SceneManager.add_glass_background(self)
 	$VBox/Header/BtnBack.pressed.connect(SceneManager.go_to_menu)
 	$VBox/BtnSync.pressed.connect(_on_sync_pressed)
 	$VBox/BtnClear.pressed.connect(_on_clear_pressed)

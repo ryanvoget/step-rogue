@@ -61,6 +61,23 @@ theme_override_constants/separation = 16
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+size_flags_stretch_ratio = 1.15
+
+[node name="PointsLabel" type="Label" parent="VBox/ContentRow/CharCanvas"]
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -110.0
+offset_top = -218.0
+offset_right = 110.0
+offset_bottom = -182.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 15
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Loadout Points: 0 / 10"
 
 [node name="SlotsCol" type="VBoxContainer" parent="VBox/ContentRow"]
 layout_mode = 2
@@ -74,23 +91,62 @@ theme_override_font_sizes/font_size = 11
 text = "EQUIPPED"
 modulate = Color(0.545, 0.584, 0.619, 1.0)
 
-[node name="Slot0" type="Button" parent="VBox/ContentRow/SlotsCol"]
+[node name="Row0" type="HBoxContainer" parent="VBox/ContentRow/SlotsCol"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 76)
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 13
+theme_override_constants/separation = 8
 
-[node name="Slot1" type="Button" parent="VBox/ContentRow/SlotsCol"]
+[node name="Slot0" type="Button" parent="VBox/ContentRow/SlotsCol/Row0"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 76)
+custom_minimum_size = Vector2(0, 104)
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+clip_text = true
 
-[node name="Slot2" type="Button" parent="VBox/ContentRow/SlotsCol"]
+[node name="Pts0" type="Label" parent="VBox/ContentRow/SlotsCol/Row0"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 76)
+custom_minimum_size = Vector2(30, 0)
+vertical_alignment = 1
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 12
+
+[node name="Row1" type="HBoxContainer" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Slot1" type="Button" parent="VBox/ContentRow/SlotsCol/Row1"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 104)
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+clip_text = true
+
+[node name="Pts1" type="Label" parent="VBox/ContentRow/SlotsCol/Row1"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 0)
+vertical_alignment = 1
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 12
+
+[node name="Row2" type="HBoxContainer" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Slot2" type="Button" parent="VBox/ContentRow/SlotsCol/Row2"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 104)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+clip_text = true
+
+[node name="Pts2" type="Label" parent="VBox/ContentRow/SlotsCol/Row2"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 0)
+vertical_alignment = 1
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 12
 
 [node name="ShirtSection" type="VBoxContainer" parent="VBox"]
 layout_mode = 2

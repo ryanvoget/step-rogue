@@ -1,0 +1,17 @@
+[gd_scene format=3 uid="uid://bhealpickup001"]
+
+[ext_resource type="Script" path="res://scenes/heal_pickup/heal_pickup.gd" id="1_pickup"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_1"]
+radius = 12.0
+
+[node name="HealPickup" type="Area2D"]
+collision_layer = 0
+collision_mask = 1
+script = ExtResource("1_pickup")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 1
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_1")

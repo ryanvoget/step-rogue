@@ -64,9 +64,43 @@ private final class GodotViewController: UIViewController {
         wrapper.isMultipleTouchEnabled = true
         view = wrapper
 
-        // Poll SaveManager.swift_request every 0.5s — bypasses the broken @Callable path.
-        syncPollTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // Poll every 0.25s — bypasses the broken @Callable path for step sync, and keeps the
+        // device orientation change (SaveManager.target_orientation) snappy so the loading cover
+        // shown during the rotation (SceneManager) can be brief.
+        syncPollTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.checkSyncRequest()
+            self?.checkOrientation()
+        }
+    }
+
+    // Reads SaveManager.target_orientation ("portrait"/"landscape") and, when it changes, flips
+    // the app-wide orientation mask and asks iOS to rotate the window to match. Menus stay
+    // portrait; the game requests landscape, so the player turns the phone sideways to play.
+    private var currentWantsLandscape = false
+    private func checkOrientation() {
+        guard let instance = godotApp.instance, instance.isStarted() else { return }
+        guard let sceneTree = Engine.getMainLoop() as? SceneTree,
+              let root = sceneTree.root else { return }
+        guard let saveManager = root.findChild(pattern: "SaveManager", recursive: false, owned: false) else { return }
+        let v = saveManager.get(property: StringName("target_orientation"))
+        guard let s = String(v) else { return }
+        let wantLandscape = (s == "landscape")
+        guard wantLandscape != currentWantsLandscape else { return }
+        currentWantsLandscape = wantLandscape
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            AppOrientation.mask = wantLandscape ? .landscape : .portrait
+            self.setNeedsUpdateOfSupportedInterfaceOrientations()
+            if #available(iOS 16.0, *),
+               let scene = self.view.window?.windowScene {
+                let orientations: UIInterfaceOrientationMask = wantLandscape ? .landscapeRight : .portrait
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { _ in }
+            } else {
+                UIDevice.current.setValue(
+                    (wantLandscape ? UIInterfaceOrientation.landscapeRight : .portrait).rawValue,
+                    forKey: "orientation")
+            }
         }
     }
 
