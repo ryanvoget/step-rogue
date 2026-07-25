@@ -19,26 +19,107 @@ const SLOTS := [
 	{ "key": "equipped_defensive", "label": "Defense",   "empty_icon": "🛡️",  "type": "defensive" },
 ]
 
+# Rarity styling — matches inventory/item_list so the picker reads the same everywhere.
+const RARITY_BG := {
+	"common":    Color(0.22, 0.22, 0.27),
+	"uncommon":  Color(0.07, 0.32, 0.11),
+	"rare":      Color(0.07, 0.14, 0.48),
+	"epic":      Color(0.28, 0.07, 0.42),
+	"legendary": Color(0.50, 0.35, 0.00),
+}
+const RARITY_LABEL := {
+	"common":    Color(0.70, 0.70, 0.75),
+	"uncommon":  Color(0.35, 0.90, 0.45),
+	"rare":      Color(0.30, 0.55, 1.00),
+	"epic":      Color(0.80, 0.40, 1.00),
+	"legendary": Color(1.00, 0.80, 0.10),
+}
+const RARITY_ORDER := ["legendary", "epic", "rare", "uncommon", "common"]
+
 @onready var _sprite:     AnimatedSprite2D = $PlayerSprite
 @onready var _canvas:     Control          = $VBox/ContentRow/CharCanvas
 @onready var _shader_mat: ShaderMaterial   = $PlayerSprite.material
+@onready var _points_label: Label          = $VBox/ContentRow/CharCanvas/PointsLabel
 
 var _slot_btns: Array = []
+var _current_overlay: Control = null # the active _open_picker overlay, if any — see _handle_screen_touch
+const TAP_MAX_DRAG := 45.0 # a touch that moves more than this (screen px) is a scroll drag, not a
+                            # tap — event positions are physical pixels (~3x), so 12 was far too
+                            # tight and normal taps got dropped as drags (popup didn't close)
+var _touch_start := Vector2.ZERO
+var _touch_moved := false
+var _press_btn: Button = null # button under the initial touch-down; fired on release if not dragged
 
 func _ready() -> void:
+	SceneManager.add_glass_background(self)
 	$VBox/Header/BtnBack.pressed.connect(SceneManager.go_to_menu)
 	_setup_sprite()
 	_setup_shirt_buttons()
 	_setup_slots()
 	_apply_shirt(SaveManager.shirt_color)
+	_refresh_points()
 	await get_tree().process_frame
 	_reposition_sprite()
+
+# Shows the total equipment-point cost of the loadout above the player. Red (and the run is
+# blocked at the Play button) when it exceeds the budget; accent colour when within it.
+func _refresh_points() -> void:
+	var pts := ItemRegistry.equipped_points()
+	_points_label.text = "Loadout Points: %d / %d" % [pts, ItemRegistry.EQUIPMENT_POINT_BUDGET]
+	if pts > ItemRegistry.EQUIPMENT_POINT_BUDGET:
+		_points_label.add_theme_color_override("font_color", Color(1.0, 0.30, 0.30))
+	else:
+		_points_label.add_theme_color_override("font_color", Color(0.55, 0.90, 1.0))
+
+# Direct touch fallback, same reasoning/pattern as menu.gd's _handle_screen_touch:
+# ButtonNode.pressed only fires on InputEventMouseButton, but the embedded display server may
+# not run emulate_mouse_from_touch, so taps here (slot buttons, shirt buttons, and the
+# dynamically-built item-picker overlay's buttons) can silently never register. Unlike menu.gd,
+# this screen's item picker is built at runtime with a variable number of buttons, so this
+# walks the tree generically instead of checking a hardcoded list.
+func _input(event: InputEvent) -> void:
+	# Capture the button under the touch-DOWN, then fire it on release if the finger didn't drag —
+	# standard button behavior. This is robust to the finger drifting slightly (or the list
+	# scrolling) between press and release: we act on the button that was pressed, not on wherever
+	# the release happened to land (which could be a gap between buttons → nothing selected → popup
+	# didn't close). A drag past TAP_MAX_DRAG is a scroll, so it selects nothing.
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touch_start = event.position
+			_touch_moved = false
+			var root: Node = _current_overlay if _current_overlay != null and is_instance_valid(_current_overlay) else self
+			_press_btn = _find_button_at(root, event.position)
+		else:
+			if not _touch_moved and _press_btn != null and is_instance_valid(_press_btn) and _press_btn.visible:
+				_press_btn.pressed.emit()
+				get_viewport().set_input_as_handled()
+			_press_btn = null
+	elif event is InputEventScreenDrag:
+		if event.position.distance_to(_touch_start) > TAP_MAX_DRAG:
+			_touch_moved = true
+
+# Hit-test with get_global_transform_with_canvas() (maps local → screen pixels, INCLUDING any
+# ScrollContainer scroll offset and the viewport stretch) instead of get_global_rect() — the
+# latter ignores the scroll's canvas transform, so after scrolling it matched pre-scroll positions
+# and picked the wrong item (bottom-of-list items never registered). Compares against the raw
+# touch position (already in screen pixels).
+func _find_button_at(root: Node, pixel_pos: Vector2) -> Button:
+	for child in root.get_children():
+		if child is Button and (child as Button).visible:
+			var ctrl := child as Control
+			var local: Vector2 = ctrl.get_global_transform_with_canvas().affine_inverse() * pixel_pos
+			if Rect2(Vector2.ZERO, ctrl.size).has_point(local):
+				return child
+		var found := _find_button_at(child, pixel_pos)
+		if found != null:
+			return found
+	return null
 
 func _reposition_sprite() -> void:
 	_sprite.position = _canvas.get_global_rect().get_center()
 
 func _setup_sprite() -> void:
-	var tex: Texture2D = load("res://assets/sprites/idle_spritesheet.png")
+	var tex: Texture2D = load("res://assets/Sprites/idle_spritesheet.png")
 	var sf := SpriteFrames.new()
 	sf.remove_animation("default")
 	sf.add_animation("idle")
@@ -59,23 +140,56 @@ func _setup_shirt_buttons() -> void:
 		btn.pressed.connect(_on_shirt_pressed.bind(option["id"]))
 	_refresh_shirt_buttons()
 
+var _pts_lbls: Array = [] # per-slot "N pts" labels, sitting to the right of each slot button
+
 func _setup_slots() -> void:
+	# Bold white font for the point-cost labels beside each slot.
+	var bold := FontVariation.new()
+	bold.base_font = ThemeDB.fallback_font
+	bold.variation_embolden = 0.6
 	for i in range(SLOTS.size()):
-		var btn := get_node("VBox/ContentRow/SlotsCol/Slot" + str(i)) as Button
+		var btn := get_node("VBox/ContentRow/SlotsCol/Row" + str(i) + "/Slot" + str(i)) as Button
 		_slot_btns.append(btn)
 		btn.pressed.connect(_open_picker.bind(i))
+		# Item type ("Weapon"/"Equipment"/"Defense") centered white across the top of the box.
+		var type_lbl := Label.new()
+		type_lbl.name = "TypeLabel"
+		type_lbl.text = SLOTS[i]["label"]
+		type_lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
+		type_lbl.offset_top = 5.0
+		type_lbl.offset_bottom = 24.0
+		type_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		type_lbl.add_theme_font_size_override("font_size", 12)
+		type_lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+		type_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(type_lbl)
+		var pts := get_node("VBox/ContentRow/SlotsCol/Row" + str(i) + "/Pts" + str(i)) as Label
+		pts.add_theme_font_override("font", bold)
+		pts.add_theme_color_override("font_color", Color(1, 1, 1))
+		_pts_lbls.append(pts)
 		_refresh_slot(i)
 
 func _refresh_slot(idx: int) -> void:
 	var slot     = SLOTS[idx]
 	var btn      = _slot_btns[idx] as Button
 	var equipped: Dictionary = SaveManager.get_slot(slot["key"])
-	btn.icon        = null
 	btn.expand_icon = false
+	var rarity: String = equipped.get("rarity", "")
+	# The item type is shown by the TypeLabel on top of the box (see _setup_slots); the button's
+	# own text is just the item name (or "(empty)"), sitting below it.
 	if equipped.is_empty():
-		btn.text = slot["empty_icon"] + "  " + slot["label"] + "\n(empty)"
+		btn.icon = null
+		btn.remove_theme_color_override("font_color")
+		btn.text = "\n(empty)"
 	else:
-		btn.text = slot["empty_icon"] + "  " + slot["label"] + "\n" + equipped["name"]
+		# Show the equipped item's image next to the name (capped to 44px), coloured by rarity.
+		btn.icon = load("res://assets/icons/" + equipped["file"])
+		btn.add_theme_constant_override("icon_max_width", 44)
+		btn.add_theme_color_override("font_color", RARITY_LABEL.get(rarity, Color(1, 1, 1)))
+		btn.text = "\n" + equipped["name"]
+	# Points this item contributes, shown to the right of the slot (outside the button box).
+	if idx < _pts_lbls.size():
+		_pts_lbls[idx].text = "" if equipped.is_empty() else "%d pts" % ItemRegistry.item_points(equipped)
 
 func _open_picker(slot_idx: int) -> void:
 	var slot = SLOTS[slot_idx]
@@ -88,6 +202,7 @@ func _open_picker(slot_idx: int) -> void:
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(overlay)
+	_current_overlay = overlay
 
 	var dim := ColorRect.new()
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -131,7 +246,10 @@ func _open_picker(slot_idx: int) -> void:
 
 	var close_btn := Button.new()
 	close_btn.text = "✕"
-	close_btn.pressed.connect(overlay.queue_free)
+	close_btn.pressed.connect(func():
+		_current_overlay = null
+		overlay.queue_free()
+	)
 	title_row.add_child(close_btn)
 
 	# Unequip button if slot is filled
@@ -142,7 +260,7 @@ func _open_picker(slot_idx: int) -> void:
 		unequip_btn.pressed.connect(_on_unequip.bind(slot_idx, overlay))
 		vbox.add_child(unequip_btn)
 
-	# Item grid or empty message
+	# Item list or empty message
 	if inv.is_empty():
 		var msg := Label.new()
 		msg.text = "No " + slot["label"].to_lower() + " items in your inventory yet."
@@ -151,32 +269,85 @@ func _open_picker(slot_idx: int) -> void:
 		vbox.add_child(msg)
 	else:
 		var scroll := ScrollContainer.new()
-		scroll.custom_minimum_size = Vector2(0, 330)
+		scroll.custom_minimum_size = Vector2(0, 340)
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED # only scrolls vertically
 		vbox.add_child(scroll)
 
-		var grid := GridContainer.new()
-		grid.columns = 3
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 10)
-		scroll.add_child(grid)
+		var content := VBoxContainer.new()
+		content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		content.add_theme_constant_override("separation", 6)
+		content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		scroll.add_child(content)
 
-		for item in inv:
-			var item_btn := Button.new()
-			item_btn.custom_minimum_size = Vector2(98, 98)
-			item_btn.icon           = load("res://assets/icons/" + item["file"])
-			item_btn.expand_icon    = true
-			item_btn.tooltip_text   = item["name"]
-			item_btn.pressed.connect(_on_equip.bind(slot_idx, item, overlay))
-			grid.add_child(item_btn)
+		# Grouped by rarity (highest first): a colored section header, then a 2-column grid of
+		# item name buttons.
+		for rarity in RARITY_ORDER:
+			var group: Array = inv.filter(func(i): return i.get("rarity", "") == rarity)
+			if group.is_empty():
+				continue
+			var header := Label.new()
+			header.text = "%s  (%d)" % [rarity.capitalize(), group.size()]
+			header.add_theme_font_size_override("font_size", 13)
+			header.add_theme_color_override("font_color", RARITY_LABEL[rarity])
+			header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			content.add_child(header)
+
+			var grid := GridContainer.new()
+			grid.columns = 2
+			grid.add_theme_constant_override("h_separation", 8)
+			grid.add_theme_constant_override("v_separation", 8)
+			grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			content.add_child(grid)
+
+			for item in group:
+				grid.add_child(_make_picker_button(item, slot_idx, overlay))
+
+# One item button in the picker list: the item's icon (small, left) + name, rarity-tinted and
+# rarity-bordered, stretched to fill its grid column (2 per row). A tap anywhere on it selects the
+# item. MOUSE_FILTER_PASS lets a drag started on it still reach the ScrollContainer for scrolling.
+func _make_picker_button(item: Dictionary, slot_idx: int, overlay: Control) -> Control:
+	var rarity: String = item.get("rarity", "")
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(0, 46)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.text = str(item.get("name", ""))
+	btn.icon = load("res://assets/icons/" + item["file"])
+	btn.add_theme_constant_override("icon_max_width", 26)
+	btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.clip_text = true # long names truncate instead of overflowing the button
+	btn.add_theme_font_size_override("font_size", 12)
+	btn.add_theme_color_override("font_color", RARITY_LABEL.get(rarity, Color(0.85, 0.85, 0.9)))
+	btn.mouse_filter = Control.MOUSE_FILTER_PASS
+	btn.add_theme_stylebox_override("normal",  _rarity_box(rarity, false))
+	btn.add_theme_stylebox_override("hover",   _rarity_box(rarity, true))
+	btn.add_theme_stylebox_override("pressed", _rarity_box(rarity, true))
+	btn.add_theme_stylebox_override("focus",   StyleBoxEmpty.new())
+	btn.pressed.connect(_on_equip.bind(slot_idx, item, overlay))
+	return btn
+
+func _rarity_box(rarity: String, hover: bool) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	var base: Color = RARITY_BG.get(rarity, Color(0.2, 0.2, 0.25))
+	s.bg_color = base.lightened(0.12) if hover else base
+	s.border_color = RARITY_LABEL.get(rarity, Color(0.6, 0.6, 0.65))
+	s.set_border_width_all(2)
+	s.set_corner_radius_all(8)
+	s.set_content_margin_all(6)
+	return s
 
 func _on_equip(slot_idx: int, item: Dictionary, overlay: Control) -> void:
 	SaveManager.set_slot(SLOTS[slot_idx]["key"], item)
 	_refresh_slot(slot_idx)
+	_refresh_points()
+	_current_overlay = null
 	overlay.queue_free()
 
 func _on_unequip(slot_idx: int, overlay: Control) -> void:
 	SaveManager.set_slot(SLOTS[slot_idx]["key"], {})
 	_refresh_slot(slot_idx)
+	_refresh_points()
+	_current_overlay = null
 	overlay.queue_free()
 
 func _on_shirt_pressed(shirt_id: String) -> void:

@@ -43,6 +43,7 @@ var _active_filter: String = "all"
 @onready var _filter_row:  HBoxContainer = $VBox/FilterScroll/FilterRow
 
 func _ready() -> void:
+	SceneManager.add_glass_background(self)
 	$VBox/Header/BtnBack.pressed.connect(SceneManager.go_to_menu)
 	$VBox/Actions/BtnTradeUp.pressed.connect(
 		func(): SceneManager.go_to("res://scenes/trade_up/trade_up.tscn"))
@@ -166,6 +167,9 @@ func _add_section(rarity: String, items: Array) -> void:
 	header.text = "%s  %d" % [rarity.capitalize(), items.size()]
 	header.add_theme_font_size_override("font_size", 15)
 	header.add_theme_color_override("font_color", RARITY_LABEL[rarity])
+	# Let touches fall through to the ScrollContainer so a drag started anywhere on the list
+	# scrolls smoothly (same reasoning as item_list.gd's rows) — nothing here is tappable.
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_content.add_child(header)
 
 	var grid := GridContainer.new()
@@ -173,6 +177,7 @@ func _add_section(rarity: String, items: Array) -> void:
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 10)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_content.add_child(grid)
 
 	for item in items:
@@ -182,9 +187,11 @@ func _make_card(item: Dictionary) -> Control:
 	var wrapper := VBoxContainer.new()
 	wrapper.custom_minimum_size = Vector2(CARD_SIZE, 0)
 	wrapper.add_theme_constant_override("separation", 4)
+	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var tile := Control.new()
 	tile.custom_minimum_size = Vector2(CARD_SIZE, CARD_SIZE)
+	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var bg := ColorRect.new()
 	bg.position = Vector2.ZERO
@@ -212,6 +219,7 @@ func _make_card(item: Dictionary) -> Control:
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl.add_theme_color_override("font_color", Color(0.68, 0.71, 0.78))
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	wrapper.add_child(lbl)
 
 	return wrapper

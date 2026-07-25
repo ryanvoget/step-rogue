@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bbarrierwall001"]
+
+[ext_resource type="Script" path="res://scenes/barrier_wall/barrier_wall.gd" id="1_barrier"]
+
+[node name="BarrierWall" type="Node2D"]
+script = ExtResource("1_barrier")

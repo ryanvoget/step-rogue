@@ -1,6 +1,9 @@
 shader_type canvas_item;
 
 uniform float target_hue : hint_range(0.0, 1.0) = 0.583;
+// When true, the shirt pixels are turned near-black instead of hue-shifted (used by the shop
+// NPC — see shop_npc.gd — to distinguish it from the player).
+uniform bool make_black = false;
 
 vec3 rgb_to_hsv(vec3 c) {
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -23,7 +26,13 @@ void fragment() {
 		vec3 hsv = rgb_to_hsv(col.rgb);
 		// Blue shirt pixels sit in hue range 0.51–0.72 (185°–260°) with decent saturation
 		if (hsv.x >= 0.51 && hsv.x <= 0.72 && hsv.y > 0.3) {
-			hsv.x = target_hue;
+			if (make_black) {
+				// Keep a little of the original shading so folds still read, but very dark.
+				hsv.y = 0.0;
+				hsv.z = hsv.z * 0.18;
+			} else {
+				hsv.x = target_hue;
+			}
 			col.rgb = hsv_to_rgb(hsv);
 		}
 	}

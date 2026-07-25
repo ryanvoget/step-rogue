@@ -26,12 +26,49 @@ grow_horizontal = 0
 theme_override_font_sizes/font_size = 14
 text = "‹ Menu"
 
-[node name="EquippedRow" type="HBoxContainer" parent="HUD"]
+[node name="ItemPicker" type="HBoxContainer" parent="HUD"]
 offset_left = 10.0
 offset_top = 44.0
-offset_right = 150.0
+offset_right = 370.0
 offset_bottom = 86.0
-theme_override_constants/separation = 4
+theme_override_constants/separation = 8
+
+[node name="EquippedIcon" type="TextureRect" parent="HUD/ItemPicker"]
+custom_minimum_size = Vector2(38, 38)
+expand_mode = 3
+stretch_mode = 5
+
+[node name="TypeFilter" type="OptionButton" parent="HUD/ItemPicker"]
+custom_minimum_size = Vector2(100, 38)
+theme_override_font_sizes/font_size = 13
+
+[node name="ItemDropdown" type="OptionButton" parent="HUD/ItemPicker"]
+custom_minimum_size = Vector2(180, 38)
+theme_override_font_sizes/font_size = 13
+
+[node name="EnemyPicker" type="HBoxContainer" parent="HUD"]
+offset_left = 10.0
+offset_top = 92.0
+offset_right = 460.0
+offset_bottom = 134.0
+theme_override_constants/separation = 8
+
+[node name="ActionDropdown" type="OptionButton" parent="HUD/EnemyPicker"]
+custom_minimum_size = Vector2(130, 38)
+theme_override_font_sizes/font_size = 13
+
+[node name="HpSlider" type="HSlider" parent="HUD/EnemyPicker"]
+custom_minimum_size = Vector2(140, 38)
+size_flags_vertical = 4
+min_value = 10.0
+max_value = 100.0
+value = 10.0
+
+[node name="HpLabel" type="Label" parent="HUD/EnemyPicker"]
+custom_minimum_size = Vector2(60, 38)
+theme_override_font_sizes/font_size = 13
+vertical_alignment = 1
+text = "10 HP"
 
 [node name="ModeLabel" type="Label" parent="HUD"]
 layout_mode = 1
@@ -45,3 +82,35 @@ offset_right = 150.0
 offset_bottom = 36.0
 theme_override_font_sizes/font_size = 13
 text = "🧪 SANDBOX"
+
+[node name="PlayerHealthBar" type="ProgressBar" parent="HUD"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -54.0
+offset_right = 110.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+value = 100.0
+show_percentage = false
+
+[node name="PlayerHealthLabel" type="Label" parent="HUD"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -54.0
+offset_right = 110.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "100 / 100"

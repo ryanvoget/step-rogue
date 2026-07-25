@@ -5,43 +5,131 @@
 [node name="HUD" type="CanvasLayer" unique_id=1515976067]
 script = ExtResource("1_hud")
 
-[node name="Panel" type="PanelContainer" parent="." unique_id=873258207]
+[node name="TopRow" type="HBoxContainer" parent="." unique_id=873258207]
 offset_left = 10.0
-offset_top = 10.0
-offset_right = 230.0
-offset_bottom = 115.0
+offset_top = 3.0
+offset_right = 760.0
+offset_bottom = 31.0
+theme_override_constants/separation = 12
 
-[node name="VBox" type="VBoxContainer" parent="Panel" unique_id=458930215]
+[node name="FloorLabel" type="Label" parent="TopRow" unique_id=1824042223]
 layout_mode = 2
-
-[node name="HealthBar" type="ProgressBar" parent="Panel/VBox" unique_id=1869468034]
-custom_minimum_size = Vector2(0, 22)
-layout_mode = 2
-size_flags_horizontal = 3
-value = 100.0
-
-[node name="FloorLabel" type="Label" parent="Panel/VBox" unique_id=1824042223]
-layout_mode = 2
+theme_override_font_sizes/font_size = 15
+vertical_alignment = 1
 text = "Floor 1"
 
-[node name="StepLabel" type="Label" parent="Panel/VBox" unique_id=390100250]
+[node name="GrenadeLabel" type="Label" parent="TopRow"]
 layout_mode = 2
-text = "Steps: 0"
+theme_override_colors/font_color = Color(1.0, 0.7, 0.3, 1.0)
+theme_override_font_sizes/font_size = 15
+vertical_alignment = 1
+text = "🧨 5"
+visible = false
 
-[node name="EquippedRow" type="HBoxContainer" parent="."]
-offset_left = 10.0
-offset_top = 120.0
-offset_right = 150.0
-offset_bottom = 162.0
+[node name="TurretLabel" type="Label" parent="TopRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.9, 0.6, 1.0)
+theme_override_font_sizes/font_size = 15
+vertical_alignment = 1
+text = "🔧 5"
+visible = false
+
+[node name="BatteryLabel" type="Label" parent="TopRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.45, 1.0, 0.6, 1.0)
+theme_override_font_sizes/font_size = 15
+vertical_alignment = 1
+text = "🔋 5"
+visible = false
+
+[node name="MineLabel" type="Label" parent="TopRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1.0, 0.5, 0.3, 1.0)
+theme_override_font_sizes/font_size = 15
+vertical_alignment = 1
+text = "💣 5"
+visible = false
+
+[node name="EquippedRow" type="HBoxContainer" parent="TopRow"]
+layout_mode = 2
 theme_override_constants/separation = 4
 
+[node name="ShieldBar" type="ProgressBar" parent="."]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -80.0
+offset_right = 110.0
+offset_bottom = -60.0
+grow_horizontal = 2
+grow_vertical = 0
+value = 100.0
+show_percentage = false
+visible = false
+
+[node name="ShieldLabel" type="Label" parent="."]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -80.0
+offset_right = 110.0
+offset_bottom = -60.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "🛡 0 / 0"
+visible = false
+
+[node name="PlayerHealthBar" type="ProgressBar" parent="."]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -54.0
+offset_right = 110.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+value = 100.0
+show_percentage = false
+
+[node name="PlayerHealthLabel" type="Label" parent="."]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -54.0
+offset_right = 110.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "100 / 100"
+
 [node name="ClearedLabel" type="Label" parent="." unique_id=1234567890]
-offset_left = 90.0
-offset_top = 390.0
-offset_right = 390.0
-offset_bottom = 460.0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -35.0
+offset_right = 150.0
+offset_bottom = 35.0
+grow_horizontal = 2
+grow_vertical = 2
 theme_override_font_sizes/font_size = 32
 horizontal_alignment = 1
+vertical_alignment = 1
 text = "Room Cleared!"
 visible = false
 
@@ -58,6 +146,22 @@ offset_bottom = 46.0
 grow_horizontal = 0
 theme_override_font_sizes/font_size = 14
 text = "‹ Menu"
+
+[node name="HoverboardLabel" type="Label" parent="."]
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -220.0
+offset_top = 52.0
+offset_right = -10.0
+offset_bottom = 74.0
+grow_horizontal = 0
+theme_override_colors/font_color = Color(0.4, 0.8, 1.0, 1.0)
+theme_override_font_sizes/font_size = 14
+horizontal_alignment = 2
+text = "🛹 Hoverboard: 5"
+visible = false
 
 [node name="StartOverlay" type="Control" parent="."]
 layout_mode = 1

@@ -79,3 +79,30 @@ custom_minimum_size = Vector2(48, 0)
 theme_override_font_sizes/font_size = 14
 text = "80%"
 horizontal_alignment = 2
+
+[node name="SfxRow" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="RowLabel" type="Label" parent="VBox/SfxRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 16
+text = "🔊  Effects Volume"
+
+[node name="SfxSlider" type="HSlider" parent="VBox/SfxRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+size_flags_vertical = 4
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 0.7
+
+[node name="SfxLabel" type="Label" parent="VBox/SfxRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(48, 0)
+theme_override_font_sizes/font_size = 14
+text = "70%"
+horizontal_alignment = 2

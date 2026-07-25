@@ -81,7 +81,18 @@ text = "Trade Up"
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
 autowrap_mode = 3
-text = "Select 10 items of the same rarity to trade for a random item one tier higher."
+text = "Select 10 items of the same rarity to trade for a random item one tier higher. Filter by type to trade a specific kind for that kind of crate."
+
+[node name="FilterScroll" type="ScrollContainer" parent="SelectScreen/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 38)
+horizontal_scroll_mode = 3
+vertical_scroll_mode = 3
+
+[node name="FilterRow" type="HBoxContainer" parent="SelectScreen/VBox/FilterScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
 
 [node name="ScrollArea" type="ScrollContainer" parent="SelectScreen/VBox"]
 layout_mode = 2
