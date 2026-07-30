@@ -407,6 +407,11 @@ func _spawn_player() -> void:
 	add_child(p)
 	p.global_position = _room.player_spawn_pos
 	_player = p
+	var cam := Camera2D.new()
+	cam.zoom = Vector2(2.0, 2.0)
+	cam.position = Vector2(GameManager.room_w * 0.5, GameManager.room_h * 0.5)
+	add_child(cam)
+	cam.make_current()
 	p.health_changed.connect(_on_player_health_changed)
 	p.died.connect(_on_player_died)
 	_on_player_health_changed(p.health, p.max_health)

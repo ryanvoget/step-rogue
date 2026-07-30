@@ -229,9 +229,9 @@ func _apply_separation() -> void:
 # a Warp teleport, knockback, or a gravity-well/force-push shove — can ever leave it (walls only
 # stop normal movement; direct position changes bypass them).
 func _clamp_to_play_area() -> void:
-	var pm := WALL_T + _radius
-	global_position.x = clampf(global_position.x, pm, GameManager.room_w - pm)
-	global_position.y = clampf(global_position.y, pm, GameManager.play_h - pm)
+	var r: Rect2 = GameManager.play_rect
+	global_position.x = clampf(global_position.x, r.position.x + _radius, r.end.x - _radius)
+	global_position.y = clampf(global_position.y, r.position.y + _radius, r.end.y - _radius)
 
 # While stunned, the AI state machine is skipped entirely (see _tick's early return) and
 # a white flash pulses every STUN_FLASH_INTERVAL to telegraph it, independent of knockback. If
@@ -368,8 +368,9 @@ func _tick_specials(delta: float) -> void:
 		_teleport_timer -= delta
 		if _teleport_timer <= 0.0:
 			_teleport_timer = TELEPORT_INTERVAL
-			var m := WALL_T + _radius + 8.0
-			global_position = Vector2(randf_range(m, GameManager.room_w - m), randf_range(m, GameManager.play_h - m))
+			var tr: Rect2 = GameManager.play_rect
+			var mr := _radius + 8.0
+			global_position = Vector2(randf_range(tr.position.x + mr, tr.end.x - mr), randf_range(tr.position.y + mr, tr.end.y - mr))
 			queue_redraw()
 	elif _special == "grenade":
 		_grenade_timer -= delta

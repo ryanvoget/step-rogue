@@ -12,13 +12,13 @@ signal battery_activate_requested # emitted by mobile_controls.gd's battery butt
 
 var current_floor: int = 1
 
-# Live room dimensions in canvas pixels, published by room.gd once it fits itself to the actual
-# screen (see room.gd's _fit_to_viewport). room_w = full width; play_h = playable height (above
-# the bottom control strip). Everything that needs the room bounds — enemy clamping/teleport,
-# heal-dispenser vial spread, the Teleportation Bracelet's target clamp — reads these so it all
-# scales to whatever device the game is running on. Defaults match the base landscape canvas.
-var room_w: float = 854.0
-var play_h: float = 380.0
+# Map + walkable bounds, published by room.gd. room_w/room_h are the screen-sized room (522x240,
+# shown at 2x camera zoom so it fills the phone), and play_rect is the walkable tiled area inside
+# the walls. Everything that needs bounds — enemy clamp/teleport/spawn, player clamp,
+# Teleportation Bracelet target, heal-dispenser vial spread — reads play_rect.
+var room_w: float = 522.0
+var room_h: float = 240.0
+var play_rect: Rect2 = Rect2(21.0, 24.0, 480.0, 192.0)
 
 # Set by mobile_controls when the right aim-joystick is pushed; zero when idle.
 var mobile_aim_dir: Vector2 = Vector2.ZERO

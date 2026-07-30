@@ -239,39 +239,16 @@ func _ready() -> void:
 	_setup_weapon()
 
 func _setup_sprite() -> void:
-	var idle_tex: Texture2D = load("res://assets/Sprites/idle_spritesheet.png")
-	var run_tex:  Texture2D = load("res://assets/Sprites/run_spritesheet.png")
+	# Single-frame 32x32 character ("Guy 1"). The movement state machine (_update_sprite) still
+	# plays idle/run_up/run_down/run_left/run_right, so each is registered as a one-frame animation
+	# of the same texture — the player renders as the 32x32 guy in every state/facing.
+	var guy_tex: Texture2D = load("res://assets/Sprites/Guy/Guy 1.png")
 	var sf := SpriteFrames.new()
 	sf.remove_animation("default")
-
-	# Idle: 5 frames from idle_spritesheet
-	sf.add_animation("idle")
-	sf.set_animation_speed("idle", IDLE_FPS)
-	sf.set_animation_loop("idle", true)
-	for i in range(5):
-		var atlas := AtlasTexture.new()
-		atlas.atlas = idle_tex
-		atlas.region = Rect2(i * FRAME_W, 0, FRAME_W, FRAME_H)
-		sf.add_frame("idle", atlas)
-
-	# Directional run: run_spritesheet layout
-	# [0]=up1 [1]=up2 [2]=down1 [3]=down2 [4]=right1 [5]=right2 [6]=left1 [7]=left2
-	var run_anims := {
-		"run_up":    [0, 1],
-		"run_down":  [2, 3],
-		"run_right": [4, 5],
-		"run_left":  [6, 7],
-	}
-	for anim_name in run_anims:
+	for anim_name in ["idle", "run_up", "run_down", "run_left", "run_right"]:
 		sf.add_animation(anim_name)
-		sf.set_animation_speed(anim_name, RUN_FPS)
 		sf.set_animation_loop(anim_name, true)
-		for idx in run_anims[anim_name]:
-			var atlas := AtlasTexture.new()
-			atlas.atlas = run_tex
-			atlas.region = Rect2(idx * FRAME_W, 0, FRAME_W, FRAME_H)
-			sf.add_frame(anim_name, atlas)
-
+		sf.add_frame(anim_name, guy_tex)
 	_sprite.sprite_frames = sf
 	_sprite.play("idle")
 	_apply_shirt_color()
@@ -311,8 +288,9 @@ func _physics_process(delta: float) -> void:
 	# rotation settles at load, and the player may have spawned against the room's earlier size —
 	# without this it can end up stranded off-screen below the raised bottom wall, appearing stuck.
 	var bm := 16.0
-	global_position.x = clampf(global_position.x, bm, GameManager.room_w - bm)
-	global_position.y = clampf(global_position.y, bm, GameManager.play_h - bm)
+	var r: Rect2 = GameManager.play_rect
+	global_position.x = clampf(global_position.x, r.position.x + bm, r.end.x - bm)
+	global_position.y = clampf(global_position.y, r.position.y + bm, r.end.y - bm)
 	_update_sprite(dir)
 	_update_weapon()
 	_tick_melee_swings(delta)
@@ -540,10 +518,11 @@ func get_aim_target(direction: Vector2, max_distance: float) -> Dictionary:
 # release would send the player.
 func get_teleport_target(direction: Vector2, max_distance: float) -> Vector2:
 	var raw: Vector2 = global_position + direction * max_distance
-	var min_x := TELEPORT_WALL_T + TELEPORT_MARGIN
-	var max_x := GameManager.room_w - TELEPORT_WALL_T - TELEPORT_MARGIN
-	var min_y := TELEPORT_WALL_T + TELEPORT_MARGIN
-	var max_y := GameManager.play_h - TELEPORT_WALL_T - TELEPORT_MARGIN
+	var r: Rect2 = GameManager.play_rect
+	var min_x := r.position.x + TELEPORT_MARGIN
+	var max_x := r.end.x - TELEPORT_MARGIN
+	var min_y := r.position.y + TELEPORT_MARGIN
+	var max_y := r.end.y - TELEPORT_MARGIN
 	return Vector2(clampf(raw.x, min_x, max_x), clampf(raw.y, min_y, max_y))
 
 func teleport_to(pos: Vector2) -> void:

@@ -47,10 +47,11 @@ func _process(delta: float) -> void:
 func _spawn_pickup() -> void:
 	var offset := Vector2(randf_range(-SPAWN_RADIUS, SPAWN_RADIUS), randf_range(-SPAWN_RADIUS, SPAWN_RADIUS))
 	var pos := global_position + offset
-	var min_x := WALL_T + EDGE_MARGIN
-	var max_x := GameManager.room_w - WALL_T - EDGE_MARGIN
-	var min_y := WALL_T + EDGE_MARGIN
-	var max_y := GameManager.play_h - WALL_T - EDGE_MARGIN
+	var r: Rect2 = GameManager.play_rect
+	var min_x := r.position.x + EDGE_MARGIN
+	var max_x := r.end.x - EDGE_MARGIN
+	var min_y := r.position.y + EDGE_MARGIN
+	var max_y := r.end.y - EDGE_MARGIN
 	pos.x = clampf(pos.x, min_x, max_x)
 	pos.y = clampf(pos.y, min_y, max_y)
 

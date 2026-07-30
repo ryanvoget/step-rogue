@@ -97,6 +97,16 @@ func _spawn_player() -> void:
 	add_child(p)
 	p.global_position = _room.player_spawn_pos
 	_player = p
+	_setup_camera()
+
+# Fixed camera centered on the (screen-sized) room at 2x zoom, so the 522x240 room fills the phone
+# with chunky pixels and never scrolls. The HUD/joysticks live on CanvasLayers, unaffected by zoom.
+func _setup_camera() -> void:
+	var cam := Camera2D.new()
+	cam.zoom = Vector2(2.0, 2.0)
+	cam.position = Vector2(GameManager.room_w * 0.5, GameManager.room_h * 0.5)
+	add_child(cam)
+	cam.make_current()
 
 # Applies the full equipped loadout (weapon + equipment + defensive) to GameManager state and
 # the live player. Runs at spawn AND again after the every-5-rooms crate reward swaps an item
@@ -530,7 +540,7 @@ func _on_enemy_died() -> void:
 # proximity check in _physics_process.
 func _spawn_shop_npc() -> void:
 	var npc: Node2D = SHOP_NPC_SCENE.instantiate()
-	npc.global_position = Vector2(_room.ROOM_W * 0.5, _room.PLAY_H * 0.5) # play-area center
+	npc.global_position = GameManager.play_rect.get_center() # corridor centre
 	_props.add_child(npc)
 	_shop_npc = npc
 	_shop_npc_active = false
