@@ -5,6 +5,9 @@ const FRAME_W   := 64
 const FRAME_H   := 64
 const IDLE_FPS  := 8.0
 const RUN_FPS   := 10.0
+# How far the guy's feet sit below his sprite center (measured from Guy 1.png: art rows 4..28 at 2x
+# scale). Lets the top clamp bring his feet up to the top-wall line so he walks in front of it.
+const TOP_FEET_OVERLAP := 24.0
 
 const SHIRT_HUES := {
 	"blue":   0.583,
@@ -293,8 +296,11 @@ func _physics_process(delta: float) -> void:
 	# without this it can end up stranded off-screen below the raised bottom wall, appearing stuck.
 	var bm := 16.0
 	var r: Rect2 = GameManager.play_rect
+	# At the top the player may walk up until his feet reach the top-wall line (body overlapping the
+	# wall, so he reads as walking in front of it). His feet sit TOP_FEET_OVERLAP below his center.
+	var top_min := r.position.y - TOP_FEET_OVERLAP
 	global_position.x = clampf(global_position.x, r.position.x + bm, r.end.x - bm)
-	global_position.y = clampf(global_position.y, r.position.y + bm, r.end.y - bm)
+	global_position.y = clampf(global_position.y, top_min, r.end.y - bm)
 	_update_sprite(dir)
 	_update_weapon()
 	_tick_melee_swings(delta)

@@ -13,6 +13,7 @@ const ROOM_H := 480.0   # 240 art x MAP_SCALE
 var _play := Rect2(120.0, 102.0, 800.0, 276.0)
 
 const WALL_T := 28.0   # collider thickness of the walls hugging the play area (pre-map value)
+const TOP_WALL_LIFT := 40.0 # top wall collider raised this far so the player can walk in front of it
 const MAP_TEXTURE_PATH := "res://assets/Sprites/Floor Types/Hallway v2.png"
 var _map_sprite: Sprite2D = null # the Hallway v2 art, shown at MAP_SCALE behind everything
 var _wall_bodies: Array = []     # the StaticBody2D walls, tracked so a rebuild can replace them
@@ -126,7 +127,10 @@ func _build_walls() -> void:
 			w.queue_free()
 	_wall_bodies.clear()
 	var p := _play
-	_wall(Vector2(p.position.x - WALL_T, p.position.y - WALL_T), Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # top
+	# The top wall collider is lifted TOP_WALL_LIFT above the floor edge so the player can walk up in
+	# front of it (his feet reach the floor/wall line, body overlapping the wall) before colliding —
+	# see player.gd's TOP_FEET_OVERLAP, which relaxes the top clamp to match.
+	_wall(Vector2(p.position.x - WALL_T, p.position.y - WALL_T - TOP_WALL_LIFT), Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # top
 	_wall(Vector2(p.position.x - WALL_T, p.end.y),               Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # bottom
 	_wall(Vector2(p.position.x - WALL_T, p.position.y),          Vector2(WALL_T, p.size.y))                # left
 	_wall(Vector2(p.end.x,               p.position.y),          Vector2(WALL_T, p.size.y))                # right
