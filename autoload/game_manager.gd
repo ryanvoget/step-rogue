@@ -16,9 +16,9 @@ var current_floor: int = 1
 # shown at 2x camera zoom so it fills the phone), and play_rect is the walkable tiled area inside
 # the walls. Everything that needs bounds — enemy clamp/teleport/spawn, player clamp,
 # Teleportation Bracelet target, heal-dispenser vial spread — reads play_rect.
-var room_w: float = 522.0
-var room_h: float = 240.0
-var play_rect: Rect2 = Rect2(21.0, 24.0, 480.0, 192.0)
+var room_w: float = 1040.0
+var room_h: float = 480.0
+var play_rect: Rect2 = Rect2(120.0, 102.0, 800.0, 276.0)
 
 # Set by mobile_controls when the right aim-joystick is pushed; zero when idle.
 var mobile_aim_dir: Vector2 = Vector2.ZERO

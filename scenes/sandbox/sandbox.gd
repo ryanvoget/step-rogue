@@ -408,7 +408,6 @@ func _spawn_player() -> void:
 	p.global_position = _room.player_spawn_pos
 	_player = p
 	var cam := Camera2D.new()
-	cam.zoom = Vector2(2.0, 2.0)
 	cam.position = Vector2(GameManager.room_w * 0.5, GameManager.room_h * 0.5)
 	add_child(cam)
 	cam.make_current()

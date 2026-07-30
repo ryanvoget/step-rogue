@@ -250,6 +250,10 @@ func _setup_sprite() -> void:
 		sf.set_animation_loop(anim_name, true)
 		sf.add_frame(anim_name, guy_tex)
 	_sprite.sprite_frames = sf
+	# Draw the 32x32 guy at 2x (64 world px) with NEAREST filtering — same world size the old 64px
+	# character had, so movement/collision tuning is unchanged, while pixels stay chunky like the map.
+	_sprite.scale = Vector2(2.0, 2.0)
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.play("idle")
 	_apply_shirt_color()
 

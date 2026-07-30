@@ -99,11 +99,11 @@ func _spawn_player() -> void:
 	_player = p
 	_setup_camera()
 
-# Fixed camera centered on the (screen-sized) room at 2x zoom, so the 522x240 room fills the phone
-# with chunky pixels and never scrolls. The HUD/joysticks live on CanvasLayers, unaffected by zoom.
+# Fixed camera centered on the (screen-sized) 1040x480 room at 1x zoom (the map/player sprites bake
+# in the 2x, so the world scale matches the pre-map game). No scrolling. HUD/joysticks are on
+# CanvasLayers, unaffected.
 func _setup_camera() -> void:
 	var cam := Camera2D.new()
-	cam.zoom = Vector2(2.0, 2.0)
 	cam.position = Vector2(GameManager.room_w * 0.5, GameManager.room_h * 0.5)
 	add_child(cam)
 	cam.make_current()
