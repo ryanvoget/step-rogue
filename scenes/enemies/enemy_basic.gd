@@ -13,15 +13,21 @@ enum Weapon { STAFF, LASER, FREEZE, WAVE, FLAME }
 # special behavior, gold dropped, and color. world.gd picks which of these to spawn per floor;
 # configure_type() applies one. Damage/fire cadence per weapon live in WEAPON_DMG/WEAPON_CD.
 const TYPES := {
-	"M":      {"hp": 15, "radius": 20.0, "weapon": Weapon.STAFF, "special": "",          "gold":  5, "color": Color(1.00, 0.55, 0.10)}, # Orange
-	"L":      {"hp": 15, "radius": 20.0, "weapon": Weapon.LASER, "special": "",          "gold":  5, "color": Color(0.25, 0.45, 0.95)}, # Blue
-	"Void":   {"hp": 25, "radius": 25.0, "weapon": Weapon.LASER, "special": "fast_fire", "gold": 10, "color": Color(0.10, 0.20, 0.55)}, # Dark Blue
-	"Warp":   {"hp": 25, "radius": 25.0, "weapon": Weapon.LASER, "special": "teleport",  "gold": 10, "color": Color(0.60, 0.25, 0.85)}, # Purple
-	"Crater": {"hp": 25, "radius": 25.0, "weapon": Weapon.STAFF, "special": "fast_swing","gold": 10, "color": Color(0.85, 0.40, 0.05)}, # Dark Orange
-	"Cryo":   {"hp": 25, "radius": 25.0, "weapon": Weapon.FREEZE,"special": "",          "gold": 10, "color": Color(0.50, 0.80, 1.00)}, # Light Blue
-	"Solar":  {"hp": 25, "radius": 25.0, "weapon": Weapon.FLAME, "special": "",          "gold": 10, "color": Color(0.90, 0.15, 0.15)}, # Red
-	"Nebula": {"hp": 25, "radius": 25.0, "weapon": Weapon.WAVE,  "special": "",          "gold": 10, "color": Color(1.00, 0.45, 0.75)}, # Pink
-	"Nova":   {"hp": 40, "radius": 30.0, "weapon": Weapon.LASER, "special": "grenade",   "gold": 25, "color": Color(0.30, 0.85, 0.35)}, # Green
+	"M":      {"hp": 20, "radius": 20.0, "weapon": Weapon.STAFF, "special": "",          "gold":  3, "color": Color(1.00, 0.55, 0.10)}, # Orange
+	"L":      {"hp": 20, "radius": 20.0, "weapon": Weapon.LASER, "special": "",          "gold":  3, "color": Color(0.25, 0.45, 0.95)}, # Blue
+	"Void":   {"hp": 35, "radius": 25.0, "weapon": Weapon.LASER, "special": "fast_fire", "gold":  8, "color": Color(0.32, 0.34, 0.38)}, # Dark Grey
+	"Warp":   {"hp": 35, "radius": 25.0, "weapon": Weapon.LASER, "special": "teleport",  "gold":  8, "color": Color(0.60, 0.25, 0.85)}, # Purple
+	"Crater": {"hp": 35, "radius": 25.0, "weapon": Weapon.STAFF, "special": "fast_swing","gold":  8, "color": Color(0.45, 0.28, 0.13)}, # Brown
+	"Cryo":   {"hp": 35, "radius": 25.0, "weapon": Weapon.FREEZE,"special": "",          "gold":  8, "color": Color(0.50, 0.80, 1.00)}, # Light Blue
+	"Solar":  {"hp": 35, "radius": 25.0, "weapon": Weapon.FLAME, "special": "",          "gold":  8, "color": Color(0.90, 0.15, 0.15)}, # Red
+	"Nebula": {"hp": 35, "radius": 25.0, "weapon": Weapon.WAVE,  "special": "",          "gold":  8, "color": Color(1.00, 0.45, 0.75)}, # Pink
+	"Nova":   {"hp": 50, "radius": 30.0, "weapon": Weapon.LASER, "special": "grenade",   "gold": 15, "color": Color(0.30, 0.85, 0.35)}, # Green
+	# Bosses spawn alone on their floor (world.gd's BOSS_BY_FLOOR): Boss1 floor 15, Boss2 floor 25.
+	"Boss1":  {"hp": 250, "radius": 55.0, "weapon": Weapon.STAFF, "special": "boss1", "gold":  50, "color": Color(1.00, 0.80, 0.62)}, # Peach — melee, swings 3x speed
+	"Boss2":  {"hp": 500, "radius": 55.0, "weapon": Weapon.LASER, "special": "boss2", "gold": 100, "color": Color(0.06, 0.06, 0.09)}, # Black — laser 4x + teleport/8x burst
+	# Final boss (floor 35): laser 5x, lobs a random grenade every 5s. Phase 2 (world.gd enables it
+	# via enable_boss_split) also splits into two every 10s, each half HP. Gold 9999 (one big payout).
+	"BossF":  {"hp": 500, "radius": 75.0, "weapon": Weapon.LASER, "special": "boss_final", "gold": 9999, "color": Color(0.45, 0.40, 0.85)}, # Gradient blue/purple/green (approx)
 }
 # Damage per attack and cooldown (seconds) per weapon — not in the sheet, tuned here.
 const WEAPON_DMG := {Weapon.STAFF: 6, Weapon.LASER: 3, Weapon.FREEZE: 3, Weapon.WAVE: 4, Weapon.FLAME: 2}
@@ -33,6 +39,17 @@ const FLAME_ARC := 0.6           # half-angle (radians) of the flame cone
 const FLAME_COLOR := Color(1.0, 0.5, 0.1)
 const TELEPORT_INTERVAL := 3.0   # Warp jumps to a random spot this often
 const GRENADE_INTERVAL := 3.0    # Nova lobs a blast grenade this often
+const BOSS2_TELEPORT_INTERVAL := 10.0 # Boss2 blinks to a random spot this often
+const BOSS2_RAPID_DURATION := 2.0     # ...then fires at 8x (instead of 4x) for this long after
+const BOSSF_GRENADE_INTERVAL := 5.0   # Final boss lobs a random grenade this often
+const BOSSF_SPLIT_INTERVAL := 10.0    # Final boss phase 2: splits in two this often
+const BOSSF_SPLIT_MIN_HP := 70        # ...but stops splitting once its health drops below this
+const BOSSF_GRENADE_KINDS := ["molitov", "mesh", "freeze", "sticky"]
+
+# Phase 2 only: emitted when the final boss splits — world.gd spawns a second boss at `pos` with
+# `hp` health (this boss keeps the other half). Kept a signal so world.gd owns the enemy count and
+# the child's died wiring (the boss can't touch world's _enemies_alive itself).
+signal boss_split(pos: Vector2, hp: int)
 const ENEMY_GRENADE_DMG := 5
 const ENEMY_GRENADE_RADIUS := 100.0
 const COIN_SCENE := preload("res://scenes/coin/coin.tscn")
@@ -48,7 +65,8 @@ enum SandboxAction { NEUTRAL, MOVING, ATTACKING, SHOOTING }
 
 const SPEED       := 90.0
 const MELEE_SPEED_MULT := 1.5 # STAFF (melee) enemies move this much faster than others
-const DETECT_DIST := 320.0
+const DETECT_DIST := 2000.0  # larger than the room diagonal (~1145px) so enemies aggro across the
+                             # whole map — they detect and pursue/attack the player from anywhere
 const ATTACK_DIST := 36.0
 const STAFF_RANGE := 90.0        # reach of the enemy staff's cone hitbox — melee enemies strike
 const STAFF_ARC_DEGREES := 100.0 # when the player is within this cone (shown as a wedge on swing)
@@ -106,6 +124,11 @@ var _swing_flash_timer := 0.0 # >0 while the melee swing arc telegraph is showin
 var _swing_angle := 0.0
 var _teleport_timer := TELEPORT_INTERVAL
 var _grenade_timer := GRENADE_INTERVAL
+var _boss2_teleport_timer := BOSS2_TELEPORT_INTERVAL # Boss2: countdown to next blink
+var _boss2_rapid_timer := 0.0                        # Boss2: remaining seconds of 8x rapid fire
+var _bossf_grenade_timer := BOSSF_GRENADE_INTERVAL   # Final boss: countdown to next grenade
+var _bossf_split_timer := BOSSF_SPLIT_INTERVAL       # Final boss phase 2: countdown to next split
+var _bossf_split_enabled := false                    # phase 2 flag (world.gd calls enable_boss_split)
 var _flame_active := false      # true while Solar is burning the player (drives the cone draw)
 var _flame_angle := 0.0
 
@@ -170,6 +193,12 @@ func configure_type(type_key: String) -> void:
 	_attack_cd = WEAPON_CD[_weapon]
 	if _special == "fast_swing" or _special == "fast_fire":
 		_attack_cd *= 0.5
+	elif _special == "boss1":
+		_attack_cd /= 3.0 # Boss1 swings at 3x speed
+	elif _special == "boss2":
+		_attack_cd /= 4.0 # Boss2's base fire rate is 4x (ramps to 8x for 2s after each teleport)
+	elif _special == "boss_final":
+		_attack_cd /= 5.0 # Final boss fires at 5x
 	# Melee (STAFF) enemies move faster so they can close the gap and swing.
 	_move_speed = SPEED * MELEE_SPEED_MULT if _weapon == Weapon.STAFF else SPEED
 
@@ -378,6 +407,55 @@ func _tick_specials(delta: float) -> void:
 			_grenade_timer = GRENADE_INTERVAL
 			if not is_blinded():
 				_throw_grenade_at_player()
+	elif _special == "boss2":
+		# Every 10s blink to a random spot, then rapid-fire at 8x for 2s before dropping back to 4x.
+		_boss2_teleport_timer -= delta
+		if _boss2_teleport_timer <= 0.0:
+			_boss2_teleport_timer = BOSS2_TELEPORT_INTERVAL
+			var tr: Rect2 = GameManager.play_rect
+			var mr := _radius + 8.0
+			global_position = Vector2(randf_range(tr.position.x + mr, tr.end.x - mr), randf_range(tr.position.y + mr, tr.end.y - mr))
+			_boss2_rapid_timer = BOSS2_RAPID_DURATION
+			_attack_cd = WEAPON_CD[Weapon.LASER] / 8.0
+			queue_redraw()
+		if _boss2_rapid_timer > 0.0:
+			_boss2_rapid_timer -= delta
+			if _boss2_rapid_timer <= 0.0:
+				_attack_cd = WEAPON_CD[Weapon.LASER] / 4.0
+	elif _special == "boss_final":
+		# Lob a random grenade at the player every 5s.
+		_bossf_grenade_timer -= delta
+		if _bossf_grenade_timer <= 0.0:
+			_bossf_grenade_timer = BOSSF_GRENADE_INTERVAL
+			if not is_blinded():
+				_throw_boss_grenade()
+		# Phase 2: split in two every 10s (each half HP) until too small.
+		if _bossf_split_enabled:
+			_bossf_split_timer -= delta
+			if _bossf_split_timer <= 0.0:
+				_bossf_split_timer = BOSSF_SPLIT_INTERVAL
+				if health > BOSSF_SPLIT_MIN_HP:
+					var half: int = int(health / 2)
+					health = half
+					max_health = half
+					boss_split.emit(global_position, half)
+
+# Phase 2: called by world.gd right after configure_type so this boss (and its split children)
+# start dividing every 10s.
+func enable_boss_split() -> void:
+	_bossf_split_enabled = true
+	_bossf_split_timer = BOSSF_SPLIT_INTERVAL
+
+# Final boss grenade: one of molitov/mesh/freeze/sticky lobbed at the player. See grenade.gd's
+# configure_enemy_grenade for how each kind lands on the player.
+func _throw_boss_grenade() -> void:
+	var parent := get_parent()
+	if parent == null or _player == null:
+		return
+	var kind: String = BOSSF_GRENADE_KINDS[randi() % BOSSF_GRENADE_KINDS.size()]
+	var g: Node2D = GRENADE_SCENE.instantiate()
+	parent.add_child(g)
+	g.configure_enemy_grenade(kind, global_position, _player.global_position, ENEMY_GRENADE_DMG, ENEMY_GRENADE_RADIUS)
 
 func _throw_grenade_at_player() -> void:
 	var parent := get_parent()
@@ -619,11 +697,23 @@ func _draw() -> void:
 		draw_colored_polygon(pts, Color(1.0, 0.85, 0.5, 0.28))
 		for i in range(pts.size() - 1):
 			draw_line(pts[i], pts[i + 1], Color(1.0, 0.9, 0.6, 0.8), 2.0)
-	# Health bar below the body (width scales with the body), with the current HP underneath.
-	var bw := _radius * 2.0
-	var by := _radius + 6.0
+	# Health bar. Bosses get a bigger red bar ABOVE the body (with "hp / max"); regular enemies a
+	# small green one below with just the current HP.
 	var ratio := clampf(float(health) / float(max_health), 0.0, 1.0)
-	draw_rect(Rect2(-_radius, by, bw, 5), Color(0.2, 0.2, 0.2))
-	draw_rect(Rect2(-_radius, by, bw * ratio, 5), Color(0.2, 0.9, 0.2))
-	draw_string(ThemeDB.fallback_font, Vector2(-_radius, by + 19.0), str(maxi(health, 0)),
-		HORIZONTAL_ALIGNMENT_CENTER, bw, 10, Color(1, 1, 1))
+	if _special.begins_with("boss"):
+		var bw := maxf(_radius * 2.0, 130.0)
+		var bh := 9.0
+		var by := -_radius - 24.0
+		var x := -bw / 2.0
+		draw_rect(Rect2(x, by, bw, bh), Color(0.08, 0.05, 0.05, 0.9))
+		draw_rect(Rect2(x, by, bw * ratio, bh), Color(0.95, 0.20, 0.22))
+		draw_rect(Rect2(x, by, bw, bh), Color(1, 1, 1, 0.75), false, 1.5)
+		draw_string(ThemeDB.fallback_font, Vector2(x, by - 4.0),
+			"%d / %d" % [maxi(health, 0), max_health], HORIZONTAL_ALIGNMENT_CENTER, bw, 12, Color(1, 0.9, 0.9))
+	else:
+		var bw := _radius * 2.0
+		var by := _radius + 6.0
+		draw_rect(Rect2(-_radius, by, bw, 5), Color(0.2, 0.2, 0.2))
+		draw_rect(Rect2(-_radius, by, bw * ratio, 5), Color(0.2, 0.9, 0.2))
+		draw_string(ThemeDB.fallback_font, Vector2(-_radius, by + 19.0), str(maxi(health, 0)),
+			HORIZONTAL_ALIGNMENT_CENTER, bw, 10, Color(1, 1, 1))

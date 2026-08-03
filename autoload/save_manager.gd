@@ -17,6 +17,10 @@ var sfx_volume: float = 0.7
 var equipped_weapon: Dictionary = {}
 var equipped_equipment: Dictionary = {}
 var equipped_defensive: Dictionary = {}
+# Artifacts are passive items with their own slot + crate, kept separate from `inventory` so they
+# never enter the trade-up pool (artifacts can't be traded up).
+var artifact_inventory: Array = []
+var equipped_artifact: Dictionary = {}
 
 func _ready() -> void:
 	_load()
@@ -54,6 +58,10 @@ func add_to_inventory(item: Dictionary) -> void:
 	inventory.append(item)
 	_save()
 
+func add_artifact(artifact: Dictionary) -> void:
+	artifact_inventory.append(artifact)
+	_save()
+
 func remove_items_by_indices(indices: Array) -> void:
 	indices = indices.duplicate()
 	indices.sort()
@@ -71,6 +79,7 @@ func get_slot(key: String) -> Dictionary:
 		"equipped_weapon":    return equipped_weapon
 		"equipped_equipment": return equipped_equipment
 		"equipped_defensive": return equipped_defensive
+		"equipped_artifact":  return equipped_artifact
 	return {}
 
 func set_slot(key: String, value: Dictionary) -> void:
@@ -78,6 +87,7 @@ func set_slot(key: String, value: Dictionary) -> void:
 		"equipped_weapon":    equipped_weapon = value
 		"equipped_equipment": equipped_equipment = value
 		"equipped_defensive": equipped_defensive = value
+		"equipped_artifact":  equipped_artifact = value
 	_save()
 
 func save() -> void:
@@ -93,6 +103,8 @@ func save() -> void:
 		"equipped_weapon": equipped_weapon,
 		"equipped_equipment": equipped_equipment,
 		"equipped_defensive": equipped_defensive,
+		"artifact_inventory": artifact_inventory,
+		"equipped_artifact": equipped_artifact,
 	}))
 	file.close()
 
@@ -117,3 +129,5 @@ func _load() -> void:
 	equipped_weapon    = parsed.get("equipped_weapon", {})
 	equipped_equipment = parsed.get("equipped_equipment", {})
 	equipped_defensive = parsed.get("equipped_defensive", {})
+	artifact_inventory = parsed.get("artifact_inventory", [])
+	equipped_artifact  = parsed.get("equipped_artifact", {})

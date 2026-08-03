@@ -263,25 +263,25 @@ const ITEMS := [
 	{ "name": "Staff",                             "rarity": "common",    "file": "Staff_Asset.png",                            "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
 	{ "name": "Laser Blaster",                     "rarity": "common",    "file": "Laser_Blaster_Asset.png",                    "type": "weapon",    "damage": 1,   "heal": null, "block": null, "fire_rate": 0.2 , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
 	{ "name": "Punching Robot Gloves",             "rarity": "common",    "file": "Punching_Robot_Gloves_Asset.png",            "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": 0.40, "barrel_offset": null, "melee_range": 96.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_hits": 2, "melee_joystick": true },
-	{ "name": "Sticky Grenade",                    "rarity": "common",    "file": "Sticky_Grenade_Asset.png",                   "type": "equipment", "damage": 4,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 375.0, "aoe_radius": 50.0, "explode_delay": 0.25, "sticky": true, "sticky_damage": 20, "sticky_delay": 1.0 },
-	{ "name": "Smoke Grenade",                     "rarity": "common",    "file": "Smoke_Grenade_Asset.png",                    "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "confuse_duration": 1.5 },
-	{ "name": "Blast Grenade",                     "rarity": "common",    "file": "Blast_Grenade_Asset.png",                    "type": "equipment", "damage": 15,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "explode_delay": 0.25, "aoe_radius": 100.0 },
+	{ "name": "Sticky Grenade",                    "rarity": "common",    "file": "Sticky_Grenade_Asset.png",                   "type": "equipment", "damage": 5,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 375.0, "aoe_radius": 50.0, "explode_delay": 0.25, "sticky": true, "sticky_damage": 30, "sticky_delay": 1.0 },
+	{ "name": "Smoke Grenade",                     "rarity": "common",    "file": "Smoke_Grenade_Asset.png",                    "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "confuse_duration": 2.0 },
+	{ "name": "Blast Grenade",                     "rarity": "common",    "file": "Blast_Grenade_Asset.png",                    "type": "equipment", "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "explode_delay": 0.25, "aoe_radius": 100.0 },
 	{ "name": "Small Heal Vial",                   "rarity": "common",    "file": "Small_Heal_Vial_Asset.png",                  "type": "defensive", "damage": null, "heal": 10,  "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_instant": 10 },
 	{ "name": "Speed Boost Battery",               "rarity": "common",    "file": "Speed_Boost_Battery_Asset.png",              "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "battery": true, "speed_boost_multiplier": 1.5, "battery_active_duration": 10.0, "battery_recharge_duration": 10.0 },
 	{ "name": "Electric Baton",                    "rarity": "common",    "file": "Electric_Baton_Asset.png",                   "type": "weapon",    "damage": 4,   "heal": null, "block": null, "fire_rate": 0.67, "barrel_offset": null, "melee_range": 128.0, "knockback": null, "placeable": false, "bullet_speed": null, "stun": 0.1, "melee_joystick": true },
-	{ "name": "Detonator Mine",                    "rarity": "common",    "file": "Detonator_Mine_Asset.png",                   "type": "equipment", "damage": 15,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "mine": true, "aoe_radius": 100.0 },
+	{ "name": "Detonator Mine",                    "rarity": "common",    "file": "Detonator_Mine_Asset.png",                   "type": "equipment", "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "mine": true, "aoe_radius": 100.0 },
 	{ "name": "Metallic Whip",                     "rarity": "uncommon",  "file": "Metallic_Whip_Asset.png",                    "type": "weapon",    "damage": 3,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 256.0, "knockback": null, "placeable": false, "bullet_speed": null, "melee_arc_degrees": 33.3333, "stun": 0.2, "melee_joystick": true },
 	{ "name": "Daggers",                           "rarity": "common",    "file": "Daggers_Asset.png",                          "type": "weapon",    "damage": 1,   "heal": null, "block": null, "fire_rate": 0.25, "barrel_offset": null, "melee_range": 96.0, "knockback": null, "placeable": false, "bullet_speed": null, "melee_hits": 2, "melee_joystick": true },
 	{ "name": "Passive Health Regen Vial",         "rarity": "common",    "file": "Passive_Health_Regen_Vial_Asset.png",        "type": "defensive", "damage": null, "heal": 1,   "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_regen_amount": 1, "heal_regen_duration": 10.0 },
 	{ "name": "Force Push Bracelet",               "rarity": "common",    "file": "Force_Push_Bracelet_Asset.png",              "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "force_push": true, "force_push_range": 192.0, "force_push_arc_degrees": 100.0, "force_push_mana_max": 100.0, "force_push_mana_drain_rate": 10.0 },
 	{ "name": "Light Shield Barrier",              "rarity": "common",    "file": "Light_Shield_Barrier_Asset.png",             "type": "defensive", "damage": null, "heal": null, "block": 10 , "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "shield": true },
 	{ "name": "Warhammer",                         "rarity": "common",    "file": "Warhammer_Asset.png",                        "type": "weapon",    "damage": 5,   "heal": null, "block": null, "fire_rate": 1.0 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
-	{ "name": "Molitov Grenade",                   "rarity": "common",    "file": "Molitov_Grenade_Asset.png",                  "type": "equipment", "damage": 3,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "linger_duration": 3.0, "linger_burn_damage": 1, "linger_burn_duration": 3.0 },
+	{ "name": "Molitov Grenade",                   "rarity": "common",    "file": "Molitov_Grenade_Asset.png",                  "type": "equipment", "damage": 10,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "linger_duration": 3.0, "linger_burn_damage": 5, "linger_burn_duration": 3.0 },
 	{ "name": "Magnetic Grenade",                  "rarity": "common",    "file": "Magnetic_Grenade_Asset.png",                 "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "gravity_duration": 2.0 },
 	{ "name": "Deployable Barrier Wall",           "rarity": "common",    "file": "Deployable_Barrier_Wall_Asset.png",          "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "barrier": true, "barrier_max_length": 250.0, "barrier_thickness": 12.0 },
 	{ "name": "Grapple Hook",                      "rarity": "uncommon",  "file": "Grapple_Hook_Asset.png",                     "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "grapple": true },
 	{ "name": "Beam Sword",                        "rarity": "uncommon",  "file": "Beam_Sword_Asset.png",                       "type": "weapon",    "damage": 5,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
-	{ "name": "Mesh Grenade",                      "rarity": "uncommon",  "file": "Mesh_Grenade_Asset.png",                     "type": "equipment", "damage": 10,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "mesh_count": 8, "mesh_radius_ratio": 0.25, "mesh_damage": 4 },
+	{ "name": "Mesh Grenade",                      "rarity": "uncommon",  "file": "Mesh_Grenade_Asset.png",                     "type": "equipment", "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "mesh_count": 8, "mesh_radius_ratio": 0.25, "mesh_damage": 6 },
 	{ "name": "Flash Grenade",                     "rarity": "uncommon",  "file": "Flash_Grenade_Asset.png",                    "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "flash_duration": 4.0 },
 	{ "name": "Medium Shield Barrier",             "rarity": "uncommon",  "file": "Medium_Shield_Barrier_Asset.png",            "type": "defensive", "damage": null, "heal": null, "block": 25 , "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "shield": true },
 	{ "name": "Medium Passive Health Regen Vial",  "rarity": "uncommon",  "file": "Medium_Passive_Health_Regen_Vial_Asset.png", "type": "defensive", "damage": null, "heal": 1,   "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_regen_amount": 1, "heal_regen_duration": 20.0 },
@@ -296,7 +296,7 @@ const ITEMS := [
 	{ "name": "Hand Cannon Gun",                   "rarity": "uncommon",  "file": "Hand_Cannon_Gun_Asset.png",                  "type": "weapon",    "damage": 10,  "heal": null, "block": null, "fire_rate": 1.5 , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
 	{ "name": "Bigger Speed Boost Battery",        "rarity": "uncommon",  "file": "Bigger_Speed_Boost_Battery_Asset.png",       "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "battery": true, "speed_boost_multiplier": 1.75, "battery_active_duration": 15.0, "battery_recharge_duration": 10.0 },
 	{ "name": "Heavy Shield Barrier",              "rarity": "rare",      "file": "Heavy_Shield_Barrier_Asset.png",             "type": "defensive", "damage": null, "heal": null, "block": 50 , "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "shield": true },
-	{ "name": "Large Warhammer",                   "rarity": "rare",      "file": "Large_Warhammer_Asset.png",                  "type": "weapon",    "damage": 8,   "heal": null, "block": null, "fire_rate": 1.0 , "barrel_offset": null, "melee_range": 150.0, "knockback": 270.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
+	{ "name": "Large Warhammer",                   "rarity": "uncommon",  "file": "Large_Warhammer_Asset.png",                  "type": "weapon",    "damage": 8,   "heal": null, "block": null, "fire_rate": 1.0 , "barrel_offset": null, "melee_range": 150.0, "knockback": 270.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
 	{ "name": "Throwable Beam Sword",              "rarity": "rare",      "file": "Throwable_Beam_Sword_Asset.png",             "type": "weapon",    "damage": 5,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": 520.0, "thrown_melee": true, "thrown_radius": 100.0 },
 	{ "name": "Hoverboard",                        "rarity": "rare",      "file": "Hoverboard_Asset.png",                       "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "hoverboard": true, "hoverboard_speed_multiplier": 2.0 },
 	{ "name": "Assault Rifle Blaster",             "rarity": "rare",      "file": "Assault_Rifle_Blaster_Asset.png",            "type": "weapon",    "damage": 1,   "heal": null, "block": null, "fire_rate": 0.0625, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
@@ -386,6 +386,8 @@ func roll_item() -> Dictionary:
 # legendary item, the legendary chance is folded into epic (per design). If a rolled rarity
 # somehow has no item of the type, it falls to the next lower rarity that does.
 func roll_item_for_crate(crate: String) -> Dictionary:
+	if crate == "artifact":
+		return roll_artifact()
 	var type: String = CRATE_TYPE.get(crate, "all")
 
 	var weights := RARITY_WEIGHTS.duplicate()
@@ -426,6 +428,8 @@ func _items_of_type_rarity(type: String, rarity: String) -> Array:
 # A random item drawn from a single crate's type — used to fill the decorative spin reel so the
 # scrolling cards match the crate you're opening. Falls back to any item for "all".
 func random_item_for_crate(crate: String) -> Dictionary:
+	if crate == "artifact":
+		return random_artifact()
 	var type: String = CRATE_TYPE.get(crate, "all")
 	if type == "all":
 		return random_item()
@@ -457,3 +461,58 @@ func get_item_by_name(item_name: String) -> Dictionary:
 func random_grenade() -> Dictionary:
 	var pool := ITEMS.filter(func(i): return i["name"].ends_with("Grenade"))
 	return pool[randi() % pool.size()]
+
+# ── Artifacts ───────────────────────────────────────────────────────────────────
+# Passive items equipped in their own character-screen slot (SaveManager.equipped_artifact), rolled
+# from their own crate ("artifact") and NOT tradeable (kept out of ITEMS/the trade-up pool). Each
+# carries the effect field(s) its passive uses; only ONE artifact is ever equipped, so the
+# artifact_* accessors below read the single equipped artifact with a neutral default. "effect" is
+# the human-readable description shown in UI. No equip-point cost for now (see item_points).
+const ARTIFACTS := [
+	{ "name": "Damage+",       "rarity": "common",    "type": "artifact", "file": "Artifact_Damage_Asset.png",     "effect": "Your base weapon does 1.2x damage",                                        "dmg_mult": 1.2 },
+	{ "name": "Defense+",      "rarity": "common",    "type": "artifact", "file": "Artifact_Defense_Asset.png",    "effect": "Your shields have 1.5x more health",                                       "shield_mult": 1.5 },
+	{ "name": "Health+",       "rarity": "common",    "type": "artifact", "file": "Artifact_Health_Asset.png",     "effect": "Start with 50 more HP",                                                    "bonus_hp": 50 },
+	{ "name": "Regen+",        "rarity": "uncommon",  "type": "artifact", "file": "Artifact_Regen_Asset.png",      "effect": "Health regenerates at 1 HP/sec while enemies are engaged with the player", "regen_per_sec": 1.0 },
+	{ "name": "Rate of Fire+", "rarity": "rare",      "type": "artifact", "file": "Artifact_RateOfFire_Asset.png", "effect": "Rate of fire of weapon is 1.5x",                                           "fire_rate_mult": 1.5 },
+	{ "name": "Invincible+",   "rarity": "epic",      "type": "artifact", "file": "Artifact_Invincible_Asset.png", "effect": "Every new room, invincible for the first 8 seconds",                       "room_invincible_seconds": 8.0 },
+	{ "name": "Shop+",         "rarity": "legendary", "type": "artifact", "file": "Artifact_Shop_Asset.png",       "effect": "Shop costs are halved for everything",                                     "shop_mult": 0.5 },
+	{ "name": "Lifesteal+",    "rarity": "uncommon",  "type": "artifact", "file": "Artifact_Lifesteal_Asset.png",  "effect": "Melee attacks that hit an enemy heal 1 HP",                                "melee_lifesteal": 1 },
+	{ "name": "Knockback+",    "rarity": "common",    "type": "artifact", "file": "Artifact_Knockback_Asset.png",  "effect": "All melee attacks add 50px of knockback to the enemy",                     "melee_knockback_add": 50.0 },
+]
+
+func artifacts_of_rarity(rarity: String) -> Array:
+	return ARTIFACTS.filter(func(a): return a["rarity"] == rarity)
+
+func random_artifact() -> Dictionary:
+	return ARTIFACTS[randi() % ARTIFACTS.size()]
+
+func get_artifact_by_name(artifact_name: String) -> Dictionary:
+	for a in ARTIFACTS:
+		if a["name"] == artifact_name:
+			return a
+	return {}
+
+# Rarity-weighted artifact roll for the artifact crate (same odds as items; every rarity has one).
+func roll_artifact() -> Dictionary:
+	var total := 0.0
+	for r in RARITY_WEIGHTS:
+		total += RARITY_WEIGHTS[r]
+	var pick := randf() * total
+	var acc := 0.0
+	var chosen := "common"
+	for r in RARITY_ORDER:
+		acc += RARITY_WEIGHTS[r]
+		if pick <= acc:
+			chosen = r
+			break
+	for i in range(RARITY_ORDER.find(chosen), RARITY_ORDER.size()):
+		var pool := artifacts_of_rarity(RARITY_ORDER[i])
+		if not pool.is_empty():
+			return pool[randi() % pool.size()]
+	return random_artifact()
+
+# Reads a numeric effect field off the single equipped artifact (SaveManager.equipped_artifact),
+# returning default_val when no artifact — or a different one — is equipped. This is how every
+# artifact effect is applied at its gameplay site (damage, fire rate, shield HP, shop cost, etc.).
+func artifact_num(key: String, default_val: float) -> float:
+	return float(SaveManager.equipped_artifact.get(key, default_val))

@@ -12,8 +12,19 @@ const DENNIS_SCENE     := preload("res://scenes/dennis/dennis.tscn")
 const HEAL_DISPENSER_SCENE := preload("res://scenes/heal_dispenser/heal_dispenser.tscn")
 const SHOP_NPC_SCENE   := preload("res://scenes/shop_npc/shop_npc.tscn")
 
-# Grid directions per door side — indices match room.gd's SIDE_TOP/BOTTOM/LEFT/RIGHT.
+# Grid directions per door side — indices match room.gd's SIDE_TOP/BOTTOM/LEFT/RIGHT (0/1/2/3).
 const SIDE_OFFSETS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
+
+# Hallway art variants and the door sides baked into each PNG (0=top,1=bottom,2=left,3=right). When
+# a room is created we pick a variant whose doors INCLUDE the entry side, so the art always lines up
+# with where the player came from; that variant's other doors become the room's exits.
+const HALLWAY_VARIANTS := [
+	{"tex": "res://assets/Sprites/Floor Types/Hallway v2.png", "doors": [0, 2, 3]},    # top, left, right
+	{"tex": "res://assets/Sprites/Floor Types/Hallway v3.png", "doors": [0, 1, 2, 3]}, # all four
+	{"tex": "res://assets/Sprites/Floor Types/Hallway v4.png", "doors": [0, 1, 3]},    # top, bottom, right
+	{"tex": "res://assets/Sprites/Floor Types/Hallway v5.png", "doors": [0, 2, 3]},    # top, left, right
+	{"tex": "res://assets/Sprites/Floor Types/Hallway v6.png", "doors": [0, 1, 2]},    # top, bottom, left
+]
 const GRENADE_CHARGES := 5 # throwable grenades get this many uses per run instead of one-shot
 const TURRET_CHARGES := 5   # placeable turrets get this many deploys per run instead of one-shot
 const MINE_CHARGES := 5     # detonator mines get this many uses per run instead of one-shot
@@ -81,9 +92,10 @@ func _ready() -> void:
 	add_child(_props)
 	_spawn_player()
 	_apply_loadout()
+	_grant_room_invincibility() # Invincible+ artifact — the start room counts as the first room
 	# Exit doors are rolled at room creation (not on clear) so they're visible — red and
 	# locked — for the whole fight, then unlock in place once the room is cleared.
-	_rooms[Vector2i.ZERO] = {"cleared": false, "doors": _roll_exit_doors(-1), "entry_side": -1, "number": 1}
+	_rooms[Vector2i.ZERO] = _make_room(-1, false, 1)
 	_refresh_doors()
 	GameManager.current_floor = 1
 	GameManager.floor_changed.emit(1)
@@ -108,12 +120,29 @@ func _setup_camera() -> void:
 	add_child(cam)
 	cam.make_current()
 
+# Re-pulls each equipped item's stats from the current ItemRegistry by name. Equipped items are
+# stored as a frozen snapshot from equip time, so balance changes (damage, rarity, etc.) wouldn't
+# otherwise reach an item that's already equipped — this keeps a live run in sync with the registry.
+func _refresh_equipped_from_registry() -> void:
+	for key in ["equipped_weapon", "equipped_equipment", "equipped_defensive"]:
+		var nm: String = SaveManager.get_slot(key).get("name", "")
+		if nm != "":
+			var fresh: Dictionary = ItemRegistry.get_item_by_name(nm)
+			if not fresh.is_empty():
+				SaveManager.set_slot(key, fresh.duplicate(true))
+	var an: String = SaveManager.equipped_artifact.get("name", "")
+	if an != "":
+		var fa: Dictionary = ItemRegistry.get_artifact_by_name(an)
+		if not fa.is_empty():
+			SaveManager.set_slot("equipped_artifact", fa.duplicate(true))
+
 # Applies the full equipped loadout (weapon + equipment + defensive) to GameManager state and
 # the live player. Runs at spawn AND again after the every-5-rooms crate reward swaps an item
 # mid-run — so everything here must be safe to re-run, resetting the not-equipped branches too
 # (same defensive pattern sandbox.gd uses on dropdown switches) so a swapped-away item's state
 # can't linger.
 func _apply_loadout() -> void:
+	_refresh_equipped_from_registry()
 	GameManager.equipment_placeable = SaveManager.equipped_equipment.get("placeable", false)
 	GameManager.placeable_charges = TURRET_CHARGES if GameManager.equipment_placeable else 0
 	GameManager.equipment_throwable = SaveManager.equipped_equipment.get("throwable", false)
@@ -171,10 +200,14 @@ func _apply_loadout() -> void:
 	if GameManager.shield_equipped:
 		var scol := _shield_color_for(SaveManager.equipped_defensive)
 		GameManager.shield_color = scol
-		_player.configure_shield(SaveManager.equipped_defensive.get("block", 10.0),
+		# Artifact Defense+ gives shields more HP (their block value doubles as the absorb pool).
+		var block: float = float(SaveManager.equipped_defensive.get("block", 10.0)) * ItemRegistry.artifact_num("shield_mult", 1.0)
+		_player.configure_shield(block,
 			SaveManager.equipped_defensive.get("shield_reflect", false), scol)
 	else:
 		_player.configure_shield(10.0, false)
+	# Artifact Health+ adds bonus max HP (idempotent — safe to re-run when the loadout re-applies).
+	_player.apply_bonus_max_health(int(ItemRegistry.artifact_num("bonus_hp", 0.0)))
 	if SaveManager.equipped_equipment.get("sidekick", false):
 		if _active_sidekick == null or not is_instance_valid(_active_sidekick):
 			_spawn_sidekick(SaveManager.equipped_equipment)
@@ -208,6 +241,17 @@ func _reequip_weapon() -> void:
 		w["damage"] = int(round(float(w["damage"]) * 1.5))
 	if level >= 2 and w.get("fire_rate") != null:
 		w["fire_rate"] = float(w["fire_rate"]) / 1.5
+	# Artifacts: Damage+ scales base weapon damage, Rate of Fire+ speeds up its fire rate.
+	if w.get("damage") != null:
+		w["damage"] = int(round(float(w["damage"]) * ItemRegistry.artifact_num("dmg_mult", 1.0)))
+	if w.get("fire_rate") != null:
+		w["fire_rate"] = float(w["fire_rate"]) / ItemRegistry.artifact_num("fire_rate_mult", 1.0)
+	# Knockback+ artifact adds knockback to melee weapons only.
+	if w.get("melee_range") != null:
+		var add_kb := ItemRegistry.artifact_num("melee_knockback_add", 0.0)
+		if add_kb > 0.0:
+			var base_kb: float = float(w["knockback"]) if w.get("knockback") != null else 0.0
+			w["knockback"] = base_kb + add_kb
 	ItemRegistry.equip_on_player(_player, w)
 
 # Uses the equipped equipment (Turret/Advanced Turret = deploy in place; Blast Grenade =
@@ -471,6 +515,11 @@ func _use_battery() -> void:
 const BASIC_TYPES := ["M", "L"]
 const TIER2_TYPES := ["Void", "Warp", "Crater"]
 const TIER3_TYPES := ["Cryo", "Solar", "Nebula", "Nova"]
+# Boss floors: only the boss spawns (no other enemies) — see _spawn_enemies_for_room.
+const BOSS_BY_FLOOR := {15: "Boss1", 25: "Boss2"}
+const FINAL_BOSS_FLOOR := 35    # two-phase final boss + "I Got Soda" music (see _spawn_final_boss_*)
+const FINAL_BOSS_MAX_COUNT := 8 # phase-2 split cap so it can't runaway-multiply
+var _final_boss_phase := 0      # 0 = not fighting the final boss, 1/2 = which phase
 
 # Enemy count ramps every two floors: 2 (1-2), 3 (3-4), 4 (5-6), 5 (7+) — never more than 5.
 func _enemy_count_for_floor(n: int) -> int:
@@ -488,6 +537,14 @@ func _enemy_count_for_floor(n: int) -> int:
 func _spawn_enemies_for_room() -> void:
 	var st: Dictionary = _rooms[_current_pos]
 	var n: int = st["number"]
+	# Final boss floor (35): its own two-phase fight + music.
+	if n == FINAL_BOSS_FLOOR:
+		_spawn_final_boss_phase1()
+		return
+	# Boss floors (15, 25): a single boss spawns in the centre, alone.
+	if BOSS_BY_FLOOR.has(n):
+		_spawn_boss(BOSS_BY_FLOOR[n])
+		return
 	# Drop only the spots RIGHT next to the door the player just entered (within DOOR_CLEARANCE),
 	# then pick randomly from the rest — so enemies can be moderately close but never on top of the
 	# entrance. Falls back to the farthest spots if too few remain.
@@ -530,10 +587,98 @@ func _spawn_enemies_for_room() -> void:
 		e.died.connect(_on_enemy_died)
 		_enemies.add_child(e)
 
+# Spawns a single boss (Boss1/Boss2) in the centre of the play area — the whole floor's fight.
+func _spawn_boss(type_key: String) -> void:
+	_enemies_alive = 1
+	_clearing = false
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type(type_key)
+	e.global_position = GameManager.play_rect.get_center()
+	e.died.connect(_on_enemy_died)
+	_enemies.add_child(e)
+
+# ── Final boss (floor 35) ───────────────────────────────────────────────────────────────────
+# Phase 1: a lone 500-HP boss; the "I Got Soda" track fades in and loops its first section. On
+# death the room does NOT clear — a Continue prompt appears, and choosing it starts phase 2: the
+# boss respawns (music restarts at 4:20) and now splits in two every 10s. Clearing phase 2 clears
+# the room normally and restores the background music.
+func _spawn_final_boss_phase1() -> void:
+	_final_boss_phase = 1
+	_enemies_alive = 1
+	_clearing = false
+	AudioManager.start_boss_music_phase1()
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type("BossF")
+	e._gold = 0 # phase 1 "respawns" — the payout comes from phase 2
+	e.global_position = GameManager.play_rect.get_center()
+	e.died.connect(_on_final_boss_phase1_died)
+	_enemies.add_child(e)
+
+func _on_final_boss_phase1_died() -> void:
+	_enemies_alive = 0
+	GameManager.ui_popup_open = true
+	_reward_popup = _build_popup_shell()
+	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
+	var title := Label.new()
+	title.text = "☠  Phase 1 down!"
+	title.add_theme_font_size_override("font_size", 19)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	var msg := Label.new()
+	msg.text = "The boss reforms, stronger — and now splits. Ready?"
+	msg.add_theme_font_size_override("font_size", 14)
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(msg)
+	var btn := Button.new()
+	btn.text = "Continue"
+	btn.custom_minimum_size = Vector2(0, 48)
+	btn.pressed.connect(_start_final_boss_phase2)
+	vbox.add_child(btn)
+
+func _start_final_boss_phase2() -> void:
+	_close_reward_popup()
+	_final_boss_phase = 2
+	_enemies_alive = 1
+	_clearing = false
+	AudioManager.start_boss_music_phase2()
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type("BossF")
+	e._gold = 0 # the 9999 payout is awarded once the whole phase-2 fight is won (see _on_enemy_died)
+	e.enable_boss_split()
+	e.global_position = GameManager.play_rect.get_center()
+	e.died.connect(_on_enemy_died)
+	e.boss_split.connect(_on_boss_split)
+	_enemies.add_child(e)
+
+# A phase-2 boss split in two: spawn its twin at half HP (capped so it can't runaway-multiply).
+func _on_boss_split(pos: Vector2, hp: int) -> void:
+	if _enemies.get_child_count() >= FINAL_BOSS_MAX_COUNT:
+		return
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type("BossF")
+	e._gold = 0 # only the original drops the payout
+	e.max_health = hp # _ready() sets health = max_health
+	e.enable_boss_split()
+	e.global_position = pos + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized() * 70.0
+	e.died.connect(_on_enemy_died)
+	e.boss_split.connect(_on_boss_split)
+	_enemies.add_child(e)
+	_enemies_alive += 1
+
 func _on_enemy_died() -> void:
 	_enemies_alive -= 1
 	if _enemies_alive <= 0 and not _clearing:
+		if _final_boss_phase == 2:
+			GameManager.add_coins(9999) # final-boss payout, awarded once phase 2 is fully cleared
+		if _final_boss_phase != 0: # final boss defeated → back to normal music
+			_final_boss_phase = 0
+			AudioManager.stop_boss_music()
 		_on_room_cleared()
+
+# Restore the background track whenever the run is left (death → game over, or back to menu).
+func _exit_tree() -> void:
+	AudioManager.stop_boss_music()
 
 # Places the shop-keeper NPC in the middle of a shop room. Room-scoped (added to _props so it's
 # freed on the next transition). The shop dialog opens when the player walks up to it — see the
@@ -561,13 +706,22 @@ func _on_room_cleared() -> void:
 func _is_shop_room(number: int) -> bool:
 	return number > 0 and number % SHOP_EVERY_N_FLOORS == 0
 
-# 3 exit doors on random sides: the 3 sides that aren't the way you came in — or, for the
-# starting room (no entry), 3 random sides of the 4.
-func _roll_exit_doors(entry_side: int) -> Array:
-	var sides := [0, 1, 2, 3]
-	sides.shuffle()
-	sides.erase(entry_side)
-	return sides.slice(0, 3)
+# Picks a Hallway variant whose baked-in doors include the entry side (any variant for the starting
+# room, entry_side -1), so the loaded art always has a door where the player came from. Returns the
+# variant dict {tex, doors}.
+func _pick_variant(entry_side: int) -> Dictionary:
+	var candidates: Array = []
+	for v in HALLWAY_VARIANTS:
+		if entry_side == -1 or entry_side in v["doors"]:
+			candidates.append(v)
+	return candidates[randi() % candidates.size()]
+
+# Builds a room state for the given entry side: picks a matching art variant and stores its FULL
+# door set (which always contains the entry side). When the room is cleared every one of those doors
+# is walkable — the current entry is drawn blue (the way back), the rest green.
+func _make_room(entry_side: int, cleared: bool, number: int) -> Dictionary:
+	var variant := _pick_variant(entry_side)
+	return {"cleared": cleared, "doors": variant["doors"].duplicate(), "entry_side": entry_side, "number": number, "variant": variant["tex"]}
 
 # Doors the player can currently walk through: none while the room is uncleared (every door,
 # including the one they came in through, stays locked until the fight is won), then all of
@@ -583,6 +737,7 @@ func _active_door_sides() -> Array:
 
 func _refresh_doors() -> void:
 	var st: Dictionary = _rooms[_current_pos]
+	_room.set_map_texture(st["variant"]) # load the art whose doors match this room
 	_room.set_doors(_current_entry_side, st["doors"], not st["cleared"])
 
 # Door polling: walls stay physically solid behind the drawn gaps, so transitions trigger off
@@ -591,6 +746,7 @@ func _refresh_doors() -> void:
 func _physics_process(_delta: float) -> void:
 	if _player == null or not is_instance_valid(_player) or GameManager.ui_popup_open:
 		return
+	_tick_artifact_regen(_delta)
 	# Shop keeper: open the shop when the player walks up. _shop_npc_active debounces so it fires
 	# once on approach; after Leaving the shop the player must step out of range and back in.
 	if _shop_npc != null and is_instance_valid(_shop_npc):
@@ -665,18 +821,39 @@ func _go_through_door(side: int) -> void:
 		_rooms_entered += 1
 		# Shop rooms carry no fight, so they start "cleared" — doors open immediately.
 		var is_shop := _is_shop_room(_rooms_entered)
-		_rooms[_current_pos] = {"cleared": is_shop, "doors": _roll_exit_doors(entry), "entry_side": entry, "number": _rooms_entered}
+		_rooms[_current_pos] = _make_room(entry, is_shop, _rooms_entered)
 		if is_shop:
 			GameManager.record_floor_cleared() # shop floors count as cleared for run stats
 	var st: Dictionary = _rooms[_current_pos]
 	GameManager.current_floor = st["number"]
 	GameManager.floor_changed.emit(st["number"])
 	_player.global_position = _room.entry_position(entry)
+	_grant_room_invincibility() # Invincible+ artifact — every room entry
 	_refresh_doors()
 	if _is_shop_room(st["number"]):
 		_spawn_shop_npc()
 	elif not st["cleared"]:
 		_spawn_enemies_for_room()
+
+# Invincible+ artifact: grant the room-entry invincibility window (no-op if not equipped).
+func _grant_room_invincibility() -> void:
+	if _player != null and is_instance_valid(_player):
+		_player.grant_room_invincible(ItemRegistry.artifact_num("room_invincible_seconds", 0.0))
+
+# Regen+ artifact: while a fight is ongoing (enemies still alive), heal the player 1 HP/sec.
+var _regen_accum := 0.0
+func _tick_artifact_regen(delta: float) -> void:
+	var rate := ItemRegistry.artifact_num("regen_per_sec", 0.0)
+	if rate <= 0.0 or _player == null or not is_instance_valid(_player) or _enemies_alive <= 0:
+		_regen_accum = 0.0
+		return
+	if _player.health >= _player.max_health:
+		return
+	_regen_accum += rate * delta
+	if _regen_accum >= 1.0:
+		var whole := int(_regen_accum)
+		_player.heal(whole)
+		_regen_accum -= float(whole)
 
 # ── Every-5-rooms reward: full heal, or open a crate and swap the matching equipped item ────
 
@@ -700,6 +877,10 @@ const CRATE_RARITY_COLORS := {
 # The player may buy as many as they can afford; the shop stays open (rebuilt after each purchase
 # so balances/enabled-states refresh) until they Leave. Once left, it can't be reopened — the
 # next shop is 10 floors later. Rebuilt fresh on every call, freeing any prior popup first.
+# Shop+ artifact halves every shop price — display, afford-check and deduction all route through here.
+func _shop_price(base: int) -> int:
+	return int(round(float(base) * ItemRegistry.artifact_num("shop_mult", 1.0)))
+
 func _show_shop() -> void:
 	if _reward_popup != null and is_instance_valid(_reward_popup):
 		_reward_popup.queue_free()
@@ -731,16 +912,16 @@ func _show_shop() -> void:
 
 	var can_heal: bool = _player != null and is_instance_valid(_player) and _player.health < _player.max_health
 	var heal_btn := Button.new()
-	heal_btn.text = "❤️  Full Heal — %d🪙" % SHOP_HEAL_COST
+	heal_btn.text = "❤️  Full Heal — %d🪙" % _shop_price(SHOP_HEAL_COST)
 	heal_btn.custom_minimum_size = Vector2(0, 48)
-	heal_btn.disabled = GameManager.coins < SHOP_HEAL_COST or not can_heal
+	heal_btn.disabled = GameManager.coins < _shop_price(SHOP_HEAL_COST) or not can_heal
 	heal_btn.pressed.connect(_shop_buy_heal)
 	vbox.add_child(heal_btn)
 
 	var crate_btn := Button.new()
-	crate_btn.text = "📦  Spin a Crate — %d🪙" % SHOP_CRATE_COST
+	crate_btn.text = "📦  Spin a Crate — %d🪙" % _shop_price(SHOP_CRATE_COST)
 	crate_btn.custom_minimum_size = Vector2(0, 48)
-	crate_btn.disabled = GameManager.coins < SHOP_CRATE_COST
+	crate_btn.disabled = GameManager.coins < _shop_price(SHOP_CRATE_COST)
 	crate_btn.pressed.connect(_shop_choose_crate)
 	vbox.add_child(crate_btn)
 
@@ -756,8 +937,8 @@ func _show_shop() -> void:
 		up_btn.disabled = true
 	else:
 		var effect: String = "1.5× damage" if level == 0 else "1.5× fire rate"
-		up_btn.text = "⬆️  Upgrade %s (%s) — %d🪙" % [wname, effect, SHOP_UPGRADE_COST]
-		up_btn.disabled = GameManager.coins < SHOP_UPGRADE_COST
+		up_btn.text = "⬆️  Upgrade %s (%s) — %d🪙" % [wname, effect, _shop_price(SHOP_UPGRADE_COST)]
+		up_btn.disabled = GameManager.coins < _shop_price(SHOP_UPGRADE_COST)
 	up_btn.pressed.connect(_shop_buy_upgrade)
 	vbox.add_child(up_btn)
 
@@ -768,21 +949,21 @@ func _show_shop() -> void:
 	vbox.add_child(leave_btn)
 
 func _shop_buy_heal() -> void:
-	if GameManager.coins < SHOP_HEAL_COST:
+	if GameManager.coins < _shop_price(SHOP_HEAL_COST):
 		return
-	GameManager.coins -= SHOP_HEAL_COST
+	GameManager.coins -= _shop_price(SHOP_HEAL_COST)
 	if _player != null and is_instance_valid(_player):
 		_player.heal_full()
 	_show_shop()
 
 func _shop_buy_upgrade() -> void:
 	var wname: String = SaveManager.equipped_weapon.get("name", "")
-	if wname == "" or GameManager.coins < SHOP_UPGRADE_COST:
+	if wname == "" or GameManager.coins < _shop_price(SHOP_UPGRADE_COST):
 		return
 	var level: int = _weapon_upgrades.get(wname, 0)
 	if level >= WEAPON_UPGRADE_MAX:
 		return
-	GameManager.coins -= SHOP_UPGRADE_COST
+	GameManager.coins -= _shop_price(SHOP_UPGRADE_COST)
 	_weapon_upgrades[wname] = level + 1
 	_reequip_weapon()
 	_show_shop()
@@ -798,7 +979,7 @@ func _shop_choose_crate() -> void:
 	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
 
 	var title := Label.new()
-	title.text = "📦  Pick a crate — %d🪙" % SHOP_CRATE_COST
+	title.text = "📦  Pick a crate — %d🪙" % _shop_price(SHOP_CRATE_COST)
 	title.add_theme_font_size_override("font_size", 16)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
@@ -817,10 +998,10 @@ func _shop_choose_crate() -> void:
 	vbox.add_child(cancel)
 
 func _shop_buy_crate(crate: String) -> void:
-	if GameManager.coins < SHOP_CRATE_COST:
+	if GameManager.coins < _shop_price(SHOP_CRATE_COST):
 		_show_shop()
 		return
-	GameManager.coins -= SHOP_CRATE_COST
+	GameManager.coins -= _shop_price(SHOP_CRATE_COST)
 	var item: Dictionary = ItemRegistry.roll_item_for_crate(crate)
 	SaveManager.add_to_inventory(item)
 	_return_to_shop = true # equip/keep afterward comes back to the shop

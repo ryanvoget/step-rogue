@@ -58,6 +58,10 @@ theme_override_font_sizes/font_size = 22
 vertical_alignment = 1
 text = "Sync Steps"
 
+[node name="TopExpand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
 [node name="BankCard" type="PanelContainer" parent="VBox"]
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_card")

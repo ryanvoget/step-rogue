@@ -156,10 +156,10 @@ func _in_aim_zone(pos: Vector2) -> bool:
 # all four are repeatable/persistent (no equipment_deployed one-shot flag applies to any of
 # them), so they're always "active" once equipped.
 func _deploy_active() -> bool:
-	# Battery is available while it's mid-boost or still has activations left; once its per-run
-	# uses are spent (no recharge anymore) the button goes away.
+	# Battery is a persistent, repeatable item (recharge model): always present once equipped —
+	# the button shows while READY, the bar while ACTIVE/RECHARGING (see _draw at BATTERY_READY).
 	if GameManager.equipment_battery:
-		return GameManager.battery_charges > 0 or GameManager.battery_state == GameManager.BATTERY_ACTIVE
+		return true
 	if GameManager.equipment_force_push or GameManager.equipment_hoverboard or GameManager.equipment_invincible:
 		return true
 	return (GameManager.equipment_placeable or GameManager.equipment_throwable or GameManager.equipment_mine \

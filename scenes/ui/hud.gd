@@ -86,12 +86,9 @@ func _process(_delta: float) -> void:
 		_turret_label.text = "🔧 %d" % GameManager.placeable_charges
 	else:
 		_turret_label.visible = false
-	# Speed Boost Battery activations remaining (no recharge — fixed uses per run).
-	if GameManager.equipment_battery:
-		_battery_label.visible = true
-		_battery_label.text = "🔋 %d" % GameManager.battery_charges
-	else:
-		_battery_label.visible = false
+	# Speed Boost Battery uses a recharge model now (no fixed charge count) — its state is shown by
+	# the button/recharge bar in mobile_controls, so no HUD charge label.
+	_battery_label.visible = false
 	# Detonator Mine uses remaining.
 	if GameManager.equipment_mine:
 		_mine_label.visible = true

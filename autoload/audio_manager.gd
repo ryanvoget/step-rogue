@@ -2,6 +2,23 @@ extends Node
 
 var _player: AudioStreamPlayer
 
+# ── Boss music (I Got Soda) ─────────────────────────────────────────────────────────────────
+# The final-boss fight (world.gd floor 35) swaps the background track for "I Got Soda":
+#  • Phase 1: loops the 0:00–4:19 section, fading out to silence right at 4:19 then fading back in
+#    from the top, over and over until the 500-HP boss dies.
+#  • Phase 2 (after Continue): restarts at 4:20 with NO fade-in, plays to the end (5:38), then loops
+#    the FULL song for as long as the fight lasts.
+# stop_boss_music() restores the normal background track (on clear or death).
+const BG_MUSIC_PATH := "res://assets/audio/11. Tractor Audit.wav"
+const SODA_MUSIC_PATH := "res://assets/audio/I_Got_Soda_Instrumental.wav"
+const SODA_LOOP_END := 259.0     # 4:19 — phase 1 loops 0..this
+const SODA_PHASE2_START := 260.0 # 4:20 — phase 2 begins here
+const MUSIC_FADE := 3.0          # fade in/out length (seconds)
+enum MusicMode { BG, BOSS_P1, BOSS_P2 }
+var _music_mode: int = MusicMode.BG
+var _bg_stream: AudioStream
+var _soda_stream: AudioStream
+
 # Procedurally synthesized SFX (no audio files needed): crate-open ticks, laser shots (any
 # bullet — see GameManager.spawn_bullet/spawn_enemy_bullet), and melee swings. A round-robin
 # pool of players lets rapid overlapping sounds (fast-fire guns, quick ticks) coexist without
@@ -20,7 +37,9 @@ var _last_laser_ms := -10000
 func _ready() -> void:
 	_player = AudioStreamPlayer.new()
 	add_child(_player)
-	_player.stream = load("res://assets/audio/11. Tractor Audit.wav")
+	_bg_stream = load(BG_MUSIC_PATH)
+	_player.stream = _bg_stream
+	# When the stream ends it restarts from 0 — background loop, and (in BOSS_P2) the full-song loop.
 	_player.finished.connect(_player.play)
 	_player.volume_db = _to_db(SaveManager.music_volume)
 	_player.play()
@@ -32,6 +51,49 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_sfx_players.append(p)
+
+# Final-boss phase 1: fade "I Got Soda" in and loop its 0:00–4:19 section (see class header).
+func start_boss_music_phase1() -> void:
+	if _soda_stream == null:
+		_soda_stream = load(SODA_MUSIC_PATH)
+	_music_mode = MusicMode.BOSS_P1
+	_player.stream = _soda_stream
+	_player.volume_db = _to_db(0.0) # start silent; _process fades it in
+	_player.play(0.0)
+
+# Final-boss phase 2 (on Continue): restart at 4:20 with no fade-in, then loop the full song.
+func start_boss_music_phase2() -> void:
+	if _soda_stream == null:
+		_soda_stream = load(SODA_MUSIC_PATH)
+	_music_mode = MusicMode.BOSS_P2
+	_player.stream = _soda_stream
+	_player.volume_db = _to_db(SaveManager.music_volume)
+	_player.play(SODA_PHASE2_START)
+
+# Back to the normal background track (boss defeated, player died, or otherwise leaving the fight).
+func stop_boss_music() -> void:
+	if _music_mode == MusicMode.BG:
+		return
+	_music_mode = MusicMode.BG
+	_player.stream = _bg_stream
+	_player.volume_db = _to_db(SaveManager.music_volume)
+	_player.play(0.0)
+
+# Drives the phase-1 loop + fades. Phase 2 and background need no per-frame work (the finished→play
+# loop and a one-time volume set cover them).
+func _process(_delta: float) -> void:
+	if _music_mode != MusicMode.BOSS_P1:
+		return
+	var pos := _player.get_playback_position()
+	if pos >= SODA_LOOP_END:
+		_player.seek(0.0)
+		pos = 0.0
+	var f := 1.0
+	if pos < MUSIC_FADE:
+		f = pos / MUSIC_FADE                              # fade in from the top of each loop
+	elif pos > SODA_LOOP_END - MUSIC_FADE:
+		f = (SODA_LOOP_END - pos) / MUSIC_FADE            # fade out to silence at 4:19
+	_player.volume_db = _to_db(SaveManager.music_volume * clampf(f, 0.0, 1.0))
 
 func set_volume(linear: float) -> void:
 	_player.volume_db = _to_db(linear)

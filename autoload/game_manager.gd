@@ -117,7 +117,7 @@ var shield_color: Color = Color(0.4, 0.8, 1.0) # tint of the active-shield playe
 # mobile_controls.gd only needs to compare/branch on it, not resolve its type.
 const BATTERY_READY := 0
 const BATTERY_ACTIVE := 1
-const BATTERY_RECHARGING := 2 # kept for compatibility; no longer used (batteries don't recharge)
+const BATTERY_RECHARGING := 2 # refilling after use — only advances while enemies are on the map
 var equipment_battery: bool = false
 var battery_state: int = BATTERY_READY
 var battery_charge: float = 1.0 # 1.0 = ready/full; drains toward 0.0 during ACTIVE

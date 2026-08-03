@@ -30,6 +30,10 @@ offset_right = -24.0
 offset_bottom = -24.0
 theme_override_constants/separation = 12
 
+[node name="TopExpand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
 [node name="Header" type="VBoxContainer" parent="VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6

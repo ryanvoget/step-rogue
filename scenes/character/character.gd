@@ -17,6 +17,9 @@ const SLOTS := [
 	{ "key": "equipped_weapon",    "label": "Weapon",    "empty_icon": "⚔️",  "type": "weapon"    },
 	{ "key": "equipped_equipment", "label": "Equipment",  "empty_icon": "🎒",  "type": "equipment" },
 	{ "key": "equipped_defensive", "label": "Defense",   "empty_icon": "🛡️",  "type": "defensive" },
+	# Artifacts: passive, sourced from SaveManager.artifact_inventory (not the shared inventory) and
+	# free to equip for now (no point cost shown — see _refresh_slot / _open_picker).
+	{ "key": "equipped_artifact",  "label": "Artifact",  "empty_icon": "🏺",  "type": "artifact", "artifact": true },
 ]
 
 # Rarity styling — matches inventory/item_list so the picker reads the same everywhere.
@@ -188,12 +191,18 @@ func _refresh_slot(idx: int) -> void:
 		btn.add_theme_color_override("font_color", RARITY_LABEL.get(rarity, Color(1, 1, 1)))
 		btn.text = "\n" + equipped["name"]
 	# Points this item contributes, shown to the right of the slot (outside the button box).
+	# Artifacts have no equip cost for now, so their slot shows no point label.
 	if idx < _pts_lbls.size():
-		_pts_lbls[idx].text = "" if equipped.is_empty() else "%d pts" % ItemRegistry.item_points(equipped)
+		if slot.get("artifact", false):
+			_pts_lbls[idx].text = ""
+		else:
+			_pts_lbls[idx].text = "" if equipped.is_empty() else "%d pts" % ItemRegistry.item_points(equipped)
 
 func _open_picker(slot_idx: int) -> void:
 	var slot = SLOTS[slot_idx]
-	var inv: Array = SaveManager.inventory.filter(
+	# Artifacts live in their own inventory; every other slot draws from the shared inventory.
+	var source: Array = SaveManager.artifact_inventory if slot.get("artifact", false) else SaveManager.inventory
+	var inv: Array = source.filter(
 		func(item): return item.get("type", "") == slot["type"]
 	)
 

@@ -148,6 +148,25 @@ vertical_alignment = 1
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 12
 
+[node name="Row3" type="HBoxContainer" parent="VBox/ContentRow/SlotsCol"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Slot3" type="Button" parent="VBox/ContentRow/SlotsCol/Row3"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 104)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+clip_text = true
+
+[node name="Pts3" type="Label" parent="VBox/ContentRow/SlotsCol/Row3"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 0)
+vertical_alignment = 1
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 12
+
 [node name="ShirtSection" type="VBoxContainer" parent="VBox"]
 layout_mode = 2
 theme_override_constants/separation = 14

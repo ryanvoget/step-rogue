@@ -91,6 +91,10 @@ var _invincible_active := false
 var _invincible_mana := 0.0
 var _invincible_mana_max := 100.0
 var _invincible_mana_drain_rate := 10.0
+# Timed invincibility from the Invincible+ artifact, granted on entering each room (separate from
+# the mana-based battery above). While > 0 it blocks all damage and shows the same purple glow.
+var _room_invincible_timer := 0.0
+const BASE_MAX_HEALTH := 100 # baseline for apply_bonus_max_health (Health+ artifact) idempotency
 
 # Shield Barrier (Light/Medium/Heavy, a heal_item): tap the blue heal button (not a joystick —
 # see item_registry.gd's shield field docs) to arm it once; while active, take_damage is fully
@@ -309,6 +313,10 @@ func _physics_process(delta: float) -> void:
 	_tick_battery(delta)
 	_tick_force_push(delta)
 	_tick_invincible(delta)
+	if _room_invincible_timer > 0.0:
+		_room_invincible_timer = maxf(_room_invincible_timer - delta, 0.0)
+		if _room_invincible_timer <= 0.0:
+			queue_redraw() # drop the glow the instant it expires
 	if _is_launcher:
 		_tick_launcher_laser(delta)
 
@@ -741,6 +749,10 @@ func _tick_melee_swings(delta: float) -> void:
 				var knockback_dir := to_enemy.normalized() if dist > 0.001 else Vector2.RIGHT.rotated(swing["angle"])
 				enemy.take_damage(_melee_damage, knockback_dir, _melee_knockback, _melee_stun)
 				swing["hit"][enemy] = true
+				# Lifesteal+ artifact: each melee hit on an enemy heals the player.
+				var ls: int = int(ItemRegistry.artifact_num("melee_lifesteal", 0.0))
+				if ls > 0:
+					heal(ls)
 				# Count this swing as "connected" once, the first time it lands on anything.
 				if not swing["scored"]:
 					swing["scored"] = true
@@ -834,7 +846,7 @@ func _draw() -> void:
 		_draw_beam()
 	if _force_push_active:
 		_draw_force_push_cone()
-	if _invincible_active:
+	if _invincible_active or _room_invincible_timer > 0.0:
 		_draw_invincible_glow()
 	if GameManager.equipment_aim_preview and GameManager.aim_preview_active and GameManager.aim_preview_dir.length() > 0.0:
 		if GameManager.equipment_teleport:
@@ -935,7 +947,7 @@ func _draw_invincible_glow() -> void:
 func take_damage(amount: int, _knockback_dir: Vector2 = Vector2.ZERO, _knockback_force: float = 0.0,
 		_stun_duration: float = 0.0, _stun_color: Color = Color(1.0, 1.0, 1.0), is_freeze: bool = false,
 		attacker: Node2D = null) -> void:
-	if _invincible_active:
+	if _invincible_active or _room_invincible_timer > 0.0:
 		return
 	# Cryo Unit's freeze bolts briefly slow the player (no full stun) — only if they actually
 	# land (shield/invincibility above still fully block).
@@ -1007,39 +1019,46 @@ const BATTERY_MAX_USES := 5 # activations per run (batteries no longer recharge)
 func configure_battery(multiplier: float, active_duration: float, recharge_duration: float) -> void:
 	_battery_multiplier = multiplier
 	_battery_active_duration = active_duration
-	_battery_recharge_duration = recharge_duration # unused now — batteries have fixed uses
+	_battery_recharge_duration = recharge_duration
 	_battery_state = GameManager.BATTERY_READY
 	_battery_speed_multiplier = 1.0
-	_battery_charges = BATTERY_MAX_USES
+	_battery_timer = 0.0
 	GameManager.battery_state = GameManager.BATTERY_READY
 	GameManager.battery_charge = 1.0
-	GameManager.battery_charges = BATTERY_MAX_USES
 
 # Called by world.gd/sandbox.gd on GameManager.battery_activate_requested (the green equipment
 # button tap). No-ops outside the ready state — mobile_controls.gd already gates the tap to
 # only register then, this is just the authoritative guard.
 func activate_battery() -> void:
-	if _battery_state != GameManager.BATTERY_READY or _battery_charges <= 0:
+	if _battery_state != GameManager.BATTERY_READY:
 		return
-	_battery_charges -= 1
-	GameManager.battery_charges = _battery_charges
 	_battery_state = GameManager.BATTERY_ACTIVE
 	_battery_timer = _battery_active_duration
 	_battery_speed_multiplier = _battery_multiplier
 	GameManager.battery_state = GameManager.BATTERY_ACTIVE
 
-# No recharge phase anymore: when the active window ends it just returns to READY (usable again
-# only while charges remain — mobile_controls hides the button once they're spent).
+# Active → recharging → ready cycle. The recharge phase only advances WHILE enemies are on the map
+# (checked via the "enemies" group), so the player can't just wait in a cleared room to top it back
+# up — it only refills during an actual fight.
 func _tick_battery(delta: float) -> void:
-	if _battery_state != GameManager.BATTERY_ACTIVE:
-		return
-	_battery_timer -= delta
-	GameManager.battery_charge = clampf(_battery_timer / _battery_active_duration, 0.0, 1.0)
-	if _battery_timer <= 0.0:
-		_battery_speed_multiplier = 1.0
-		_battery_state = GameManager.BATTERY_READY
-		GameManager.battery_state = GameManager.BATTERY_READY
-		GameManager.battery_charge = 1.0
+	if _battery_state == GameManager.BATTERY_ACTIVE:
+		_battery_timer -= delta
+		GameManager.battery_charge = clampf(_battery_timer / _battery_active_duration, 0.0, 1.0)
+		if _battery_timer <= 0.0:
+			_battery_speed_multiplier = 1.0
+			_battery_state = GameManager.BATTERY_RECHARGING
+			_battery_timer = _battery_recharge_duration
+			GameManager.battery_state = GameManager.BATTERY_RECHARGING
+			GameManager.battery_charge = 0.0
+	elif _battery_state == GameManager.BATTERY_RECHARGING:
+		if get_tree().get_nodes_in_group("enemies").is_empty():
+			return # pause the recharge outside of combat
+		_battery_timer -= delta
+		GameManager.battery_charge = clampf(1.0 - _battery_timer / _battery_recharge_duration, 0.0, 1.0)
+		if _battery_timer <= 0.0:
+			_battery_state = GameManager.BATTERY_READY
+			GameManager.battery_state = GameManager.BATTERY_READY
+			GameManager.battery_charge = 1.0
 
 # ── Force Push Bracelet (equipment) ─────────────────────────────────────────────────────────
 
@@ -1143,7 +1162,26 @@ func toggle_invincible() -> void:
 	queue_redraw() # forces _draw() to re-evaluate the glow immediately either way
 
 func is_invincible() -> bool:
-	return _invincible_active
+	return _invincible_active or _room_invincible_timer > 0.0
+
+# Health+ artifact: raise max HP to BASE + bonus and carry current HP up by the increase. Idempotent
+# (re-applying the same bonus is a no-op), so _apply_loadout can call it repeatedly mid-run.
+func apply_bonus_max_health(bonus: int) -> void:
+	var new_max: int = BASE_MAX_HEALTH + bonus
+	if new_max == max_health:
+		return
+	var delta: int = new_max - max_health
+	max_health = new_max
+	health = clampi(health + max(delta, 0), 0, max_health)
+	health_changed.emit(health, max_health)
+	GameManager.health_changed.emit(health, max_health)
+
+# Invincible+ artifact: called on entering a room. Grants `seconds` of full invincibility (0 = no-op
+# when the artifact isn't equipped).
+func grant_room_invincible(seconds: float) -> void:
+	if seconds > 0.0:
+		_room_invincible_timer = seconds
+		queue_redraw()
 
 func _tick_invincible(delta: float) -> void:
 	if not _invincible_active:

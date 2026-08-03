@@ -47,6 +47,10 @@ theme_override_font_sizes/font_size = 22
 vertical_alignment = 1
 text = "Settings"
 
+[node name="TopExpand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
 [node name="SectionLabel" type="Label" parent="VBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
@@ -106,3 +110,7 @@ custom_minimum_size = Vector2(48, 0)
 theme_override_font_sizes/font_size = 14
 text = "70%"
 horizontal_alignment = 2
+
+[node name="BottomExpand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3

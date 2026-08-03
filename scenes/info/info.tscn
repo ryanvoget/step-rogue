@@ -47,6 +47,10 @@ theme_override_font_sizes/font_size = 22
 vertical_alignment = 1
 text = "Info"
 
+[node name="TopExpand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
 [node name="BtnItemList" type="Button" parent="VBox"]
 layout_mode = 2
 custom_minimum_size = Vector2(0, 56)
@@ -60,3 +64,7 @@ custom_minimum_size = Vector2(0, 56)
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 17
 text = "👾  Enemy Info"
+
+[node name="BottomExpand" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3

@@ -29,7 +29,7 @@ const RARITY_COLORS := {
 @onready var _result_img:     TextureRect = $ResultScreen/VBox/ResultCard/CardVBox/ItemImage
 @onready var _result_name:    Label       = $ResultScreen/VBox/ResultCard/CardVBox/ItemName
 
-const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"], ["medical", "🧰  Medical"]]
+const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"], ["medical", "🧰  Medical"], ["artifact", "🏺  Artifacts"]]
 
 var _spinning := false        # true while the reel is scrolling — see _process ticker
 var _spin_last_tick := -1
@@ -158,7 +158,11 @@ func _process(_delta: float) -> void:
 # ── Result ────────────────────────────────────────────────────────────────────
 
 func _show_result(winner: Dictionary) -> void:
-	SaveManager.add_to_inventory(winner)
+	# Artifacts go to their own (non-tradeable) inventory; everything else to the shared inventory.
+	if winner.get("type", "") == "artifact":
+		SaveManager.add_artifact(winner)
+	else:
+		SaveManager.add_to_inventory(winner)
 	_purchase.visible = false
 	_spin.visible     = false
 	_result.visible   = true

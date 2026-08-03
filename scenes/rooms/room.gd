@@ -23,7 +23,7 @@ const SIDE_TOP    := 0
 const SIDE_BOTTOM := 1
 const SIDE_LEFT   := 2
 const SIDE_RIGHT  := 3
-const DOOR_W := 96.0                    # door gap width (pre-map value)
+const DOOR_W := 128.0                   # door trigger width (matches the ~136px art openings)
 const DOOR_ZONE_DEPTH := WALL_T + 24.0  # how far the trigger zone reaches into the room
 const ENTRY_INSET := WALL_T + 40.0      # where the player lands after walking through a door
 
@@ -68,6 +68,17 @@ func _setup_map_sprite() -> void:
 		add_child(_map_sprite)
 		move_child(_map_sprite, 0)
 
+# Swaps the room art to a specific Hallway variant (world.gd picks one whose baked-in doors match
+# the room's entry/exit sides). All variants share the same floor + door positions, so only the
+# texture changes — _play and the door geometry stay put.
+func set_map_texture(path: String) -> void:
+	if _map_sprite == null:
+		_setup_map_sprite()
+	var tex: Texture2D = load(path)
+	if tex != null and tex != _map_sprite.texture:
+		_map_sprite.texture = tex
+		queue_redraw()
+
 # All doors are drawn from the moment the player enters — red while locked (until the room is
 # cleared), then the entry door turns blue (the way back) and the exits green.
 func set_doors(p_entry_side: int, p_exit_sides: Array, p_locked: bool) -> void:
@@ -78,15 +89,17 @@ func set_doors(p_entry_side: int, p_exit_sides: Array, p_locked: bool) -> void:
 	doors_locked = p_locked
 	queue_redraw()
 
-# Trigger zone for a door: covers the wall gap at the play-area edge and reaches DOOR_ZONE_DEPTH
-# inward, so the player walking into the (solid) wall behind the gap overlaps it (world.gd polls).
+# Trigger zone for a door: a thin band right at the door mouth, so the room only changes once the
+# player has actually walked up to the door (his center within ~12px of how far he can push toward
+# it) — not while still out on the floor. The player checked here is his center; the bands account
+# for how close he can get per side (the top clamp lets him press further up, in front of the wall).
 func door_zone(side: int) -> Rect2:
 	var c := _play.get_center()
 	match side:
-		SIDE_TOP:    return Rect2(c.x - DOOR_W / 2.0, _play.position.y, DOOR_W, DOOR_ZONE_DEPTH)
-		SIDE_BOTTOM: return Rect2(c.x - DOOR_W / 2.0, _play.end.y - DOOR_ZONE_DEPTH, DOOR_W, DOOR_ZONE_DEPTH)
-		SIDE_LEFT:   return Rect2(_play.position.x, c.y - DOOR_W / 2.0, DOOR_ZONE_DEPTH, DOOR_W)
-		SIDE_RIGHT:  return Rect2(_play.end.x - DOOR_ZONE_DEPTH, c.y - DOOR_W / 2.0, DOOR_ZONE_DEPTH, DOOR_W)
+		SIDE_TOP:    return Rect2(c.x - DOOR_W / 2.0, _play.position.y - 62.0, DOOR_W, 50.0)   # center.y <= 90
+		SIDE_BOTTOM: return Rect2(c.x - DOOR_W / 2.0, _play.end.y - 28.0,      DOOR_W, 90.0)   # center.y >= 350
+		SIDE_LEFT:   return Rect2(_play.position.x - 80.0, c.y - DOOR_W / 2.0, 108.0, DOOR_W)  # center.x <= 148
+		SIDE_RIGHT:  return Rect2(_play.end.x - 28.0,      c.y - DOOR_W / 2.0, 108.0, DOOR_W)  # center.x >= 892
 	return Rect2()
 
 # Where the player appears when entering a room through the door on this side.
@@ -99,26 +112,27 @@ func entry_position(side: int) -> Vector2:
 		SIDE_RIGHT:  return Vector2(_play.end.x - ENTRY_INSET, c.y)
 	return player_spawn_pos
 
-# The wall-thickness rect a door gap occupies (at the play-area edge), for drawing the indicator.
-func _door_gap_rect(side: int) -> Rect2:
-	var c := _play.get_center()
+# Closed outline (world coords) tracing each door's true trapezoid — the openings are perspective
+# tunnels, wider at the outer map edge and narrower where they meet the floor. Measured from the PNG
+# (art px x MAP_SCALE): e.g. top opening goes art (226,0)-(293,0) at the edge to (237,48)-(282,48)
+# at the floor. So the status outline hugs the real door instead of a square.
+func _door_outline(side: int) -> PackedVector2Array:
 	match side:
-		SIDE_TOP:    return Rect2(c.x - DOOR_W / 2.0, _play.position.y - WALL_T, DOOR_W, WALL_T)
-		SIDE_BOTTOM: return Rect2(c.x - DOOR_W / 2.0, _play.end.y, DOOR_W, WALL_T)
-		SIDE_LEFT:   return Rect2(_play.position.x - WALL_T, c.y - DOOR_W / 2.0, WALL_T, DOOR_W)
-		SIDE_RIGHT:  return Rect2(_play.end.x, c.y - DOOR_W / 2.0, WALL_T, DOOR_W)
-	return Rect2()
+		SIDE_TOP:    return PackedVector2Array([Vector2(452,0),   Vector2(586,0),   Vector2(564,96),  Vector2(474,96),  Vector2(452,0)])
+		SIDE_BOTTOM: return PackedVector2Array([Vector2(474,382), Vector2(564,382), Vector2(586,478), Vector2(452,478), Vector2(474,382)])
+		SIDE_LEFT:   return PackedVector2Array([Vector2(0,172),   Vector2(0,306),   Vector2(114,284), Vector2(114,194), Vector2(0,172)])
+		SIDE_RIGHT:  return PackedVector2Array([Vector2(1040,172),Vector2(1040,306),Vector2(926,284), Vector2(926,194), Vector2(1040,172)])
+	return PackedVector2Array()
 
 func _draw() -> void:
-	# The floor, walls and door openings all come from the Hallway v2 art. Only the door status
-	# frames are drawn on top — a coloured outline over each active door (red locked, blue = way
-	# back, green = open exit) so the player can read which exits are available.
+	# The floor, walls and door openings all come from the Hallway art. Only the door status outlines
+	# are drawn on top — a coloured trapezoid tracing each active door (red locked, blue = way back,
+	# green = open exit) so the player can read which exits are available.
 	for side in door_sides:
-		var gap := _door_gap_rect(side)
 		var frame_col := DOOR_LOCKED_COLOR
 		if not doors_locked:
 			frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
-		draw_rect(gap, frame_col, false, 2.0)
+		draw_polyline(_door_outline(side), frame_col, 3.0)
 
 # Four walls hugging the walkable floor, extending outward into the dark wall art.
 func _build_walls() -> void:

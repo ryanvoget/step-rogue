@@ -9,21 +9,22 @@ extends Control
 
 const E := preload("res://scenes/enemies/enemy_basic.gd")
 
-const ENEMY_ORDER := ["M", "L", "Void", "Warp", "Crater", "Cryo", "Solar", "Nebula", "Nova"]
+const ENEMY_ORDER := ["M", "L", "Void", "Warp", "Crater", "Cryo", "Solar", "Nebula", "Nova", "Boss1", "Boss2"]
 const ENEMY_NAMES := {
 	"M": "M Unit", "L": "L Unit", "Void": "Void Unit", "Warp": "Warp Unit",
 	"Crater": "Crater Unit", "Cryo": "Cryo Unit", "Solar": "Solar Unit",
-	"Nebula": "Nebula Unit", "Nova": "Nova Unit",
+	"Nebula": "Nebula Unit", "Nova": "Nova Unit", "Boss1": "Boss 1", "Boss2": "Boss 2",
 }
 const COLOR_NAMES := {
-	"M": "Orange", "L": "Blue", "Void": "Dark Blue", "Warp": "Purple",
-	"Crater": "Dark Orange", "Cryo": "Light Blue", "Solar": "Red",
-	"Nebula": "Pink", "Nova": "Green",
+	"M": "Orange", "L": "Blue", "Void": "Dark Grey", "Warp": "Purple",
+	"Crater": "Brown", "Cryo": "Light Blue", "Solar": "Red",
+	"Nebula": "Pink", "Nova": "Green", "Boss1": "Peach", "Boss2": "Black",
 }
 const APPEARS := {
 	"M": "Any floor", "L": "Any floor",
 	"Void": "Floor 10+", "Warp": "Floor 10+", "Crater": "Floor 10+",
 	"Cryo": "Floor 20+", "Solar": "Floor 20+", "Nebula": "Floor 20+", "Nova": "Floor 20+",
+	"Boss1": "Floor 15 (boss)", "Boss2": "Floor 25 (boss)",
 }
 const SPECIAL_DESC := {
 	"": "None",
@@ -31,6 +32,8 @@ const SPECIAL_DESC := {
 	"fast_swing": "Swings twice as fast",
 	"teleport":   "Teleports to a random spot every 3s",
 	"grenade":    "Throws a blast grenade every 3s",
+	"boss1":      "Swings 3x as fast",
+	"boss2":      "Fires 4x fast; every 10s teleports, then fires 8x for 2s",
 }
 
 const ROW_ICON := 44.0 # circle diameter used in the list rows (real size shown in the popup)
@@ -57,6 +60,10 @@ func _fire_cd(w: int, special: String) -> float:
 	var cd: float = E.WEAPON_CD[w]
 	if special == "fast_fire" or special == "fast_swing":
 		cd *= 0.5
+	elif special == "boss1":
+		cd /= 3.0
+	elif special == "boss2":
+		cd /= 4.0 # base rate (ramps to 8x for 2s after each teleport)
 	return cd
 
 func _fmt(value) -> String:

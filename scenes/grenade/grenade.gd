@@ -74,6 +74,8 @@ var _stick_delay := 0.0
 
 var _enemy_blast := false # Nova Unit's grenade — a plain blast that damages the PLAYER group
                            # instead of enemies (see configure_enemy_blast)
+var _enemy_kind := "blast" # final-boss grenade kind (blast/mesh/molitov/freeze/sticky) — see
+                           # configure_enemy_grenade; routes the player-facing effect in _explode
 
 @onready var _sprite: Sprite2D = $Sprite
 @onready var _explode_timer: Timer = $ExplodeTimer
@@ -221,13 +223,36 @@ func configure_enemy_blast(tex: Texture2D, origin: Vector2, landing_pos: Vector2
 	tween.tween_property(self, "global_position", landing_pos, THROW_DURATION)
 	tween.finished.connect(_explode_timer.start)
 
+# Final boss grenade — a player-facing blast whose flavour depends on `kind`: freeze slows the
+# player, mesh scatters extra mini-blasts, and molitov/sticky/blast just deal the AOE damage (their
+# fuller player effects are TODO). Uses each kind's real icon so it reads on screen.
+const BOSS_GRENADE_ICONS := {
+	"molitov": "Molitov_Grenade_Asset.png", "mesh": "Mesh_Grenade_Asset.png",
+	"freeze": "Ice_Grenade_Asset.png", "sticky": "Sticky_Grenade_Asset.png",
+}
+func configure_enemy_grenade(kind: String, origin: Vector2, landing_pos: Vector2, damage: int, radius: float) -> void:
+	_enemy_kind = kind
+	var icon: String = BOSS_GRENADE_ICONS.get(kind, "Blast_Grenade_Asset.png")
+	configure_enemy_blast(load("res://assets/icons/" + icon), origin, landing_pos, damage, radius, 0.25)
+
 func _explode() -> void:
 	_exploded = true
 	_sprite.visible = false
 	if _enemy_blast:
 		for p in get_tree().get_nodes_in_group("player"):
-			if global_position.distance_to(p.global_position) <= _radius and p.has_method("take_damage"):
+			if global_position.distance_to(p.global_position) > _radius or not p.has_method("take_damage"):
+				continue
+			if _enemy_kind == "freeze":
+				p.take_damage(0, Vector2.ZERO, 0.0, 0.0, FREEZE_COLOR, true) # freeze-slows the player, no damage
+			else:
 				p.take_damage(_damage)
+		# Mesh: scatter a few extra plain blasts around the impact (each also hits the player).
+		if _enemy_kind == "mesh":
+			for i in 4:
+				var off := Vector2(_radius, 0.0).rotated(TAU * float(i) / 4.0)
+				var mini: Node2D = load("res://scenes/grenade/grenade.tscn").instantiate()
+				get_parent().add_child(mini)
+				mini.configure_enemy_blast(_sprite.texture, global_position, global_position + off, _damage, _radius * 0.6, 0.1)
 		queue_redraw()
 		get_tree().create_timer(EXPLOSION_FLASH_DURATION).timeout.connect(queue_free)
 		return
