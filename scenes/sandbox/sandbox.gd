@@ -36,6 +36,7 @@ var _active_barrier: Node2D = null
 var _active_sidekick: Node2D = null
 var _active_dennis: Node2D = null
 var _active_dispenser: Node2D = null
+var _boss_fight_active := false # true once a boss fight is started — stops the dummy respawning
 
 func _ready() -> void:
 	GameManager.register_bullets_container(_bullets)
@@ -47,6 +48,7 @@ func _ready() -> void:
 	$HUD/BtnMenu.pressed.connect(_on_menu_pressed)
 	_setup_item_picker()
 	_setup_enemy_picker()
+	_setup_boss_fight_button()
 	if OS.has_feature("ios") or OS.has_feature("android") or OS.has_feature("editor"):
 		add_child(preload("res://scenes/ui/mobile_controls.tscn").instantiate())
 
@@ -440,9 +442,169 @@ const DUMMY_RESPAWN_DELAY := 0.5 # gives one-shot kills a beat to be visible bef
 # room spawn points real gameplay also uses.
 const DUMMY_SPAWN_Y := 200.0
 
+# Dev-only "Boss Fight" button (top-right): pick a boss to spawn into the sandbox and test it with
+# the currently selected loadout.
+func _setup_boss_fight_button() -> void:
+	var b := Button.new()
+	b.text = "👹 Boss Fight"
+	b.anchor_left = 1.0
+	b.anchor_right = 1.0
+	b.offset_left = -130.0
+	b.offset_right = -10.0
+	b.offset_top = 52.0
+	b.offset_bottom = 86.0
+	b.add_theme_font_size_override("font_size", 13)
+	b.pressed.connect(_show_boss_picker)
+	$HUD.add_child(b)
+
+func _show_boss_picker() -> void:
+	GameManager.ui_popup_open = true # pauses the mobile joysticks so the picker gets the taps
+	var overlay := Control.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	$HUD.add_child(overlay)
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.7)
+	overlay.add_child(dim)
+	var panel := VBoxContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -110.0
+	panel.offset_right = 110.0
+	panel.offset_top = -110.0
+	panel.offset_bottom = 110.0
+	panel.add_theme_constant_override("separation", 10)
+	overlay.add_child(panel)
+	var title := Label.new()
+	title.text = "Fight which boss?"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(title)
+	for opt in [["Boss1", "🗡  Boss 1"], ["Boss2", "🔫  Boss 2"], ["BossF", "☠  Boss Final"]]:
+		var btn := Button.new()
+		btn.text = opt[1]
+		btn.custom_minimum_size = Vector2(0, 46)
+		btn.pressed.connect(func():
+			GameManager.ui_popup_open = false
+			overlay.queue_free()
+			_start_boss_fight(opt[0]))
+		panel.add_child(btn)
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.custom_minimum_size = Vector2(0, 40)
+	cancel.pressed.connect(func():
+		GameManager.ui_popup_open = false
+		overlay.queue_free())
+	panel.add_child(cancel)
+
+func _start_boss_fight(kind: String) -> void:
+	GameManager.ui_popup_open = false
+	AudioManager.stop_boss_music() # clear any music left from a previous boss test
+	_boss_fight_active = true # keep the dummy from respawning during the fight
+	if _dummy != null and is_instance_valid(_dummy):
+		_dummy.queue_free()
+	_dummy = null
+	for n in get_tree().get_nodes_in_group("enemies"):
+		if is_instance_valid(n):
+			n.queue_free()
+	# The final boss uses the full two-phase + "I Got Soda" music flow, same as the base game.
+	if kind == "BossF":
+		_sandbox_final_phase1()
+		return
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type(kind)
+	e.global_position = GameManager.play_rect.get_center()
+	add_child(e)
+
+func _sandbox_final_phase1() -> void:
+	AudioManager.start_boss_music_phase1()
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type("BossF") # 1000 HP, no split yet
+	e.global_position = GameManager.play_rect.get_center()
+	e.died.connect(_on_sandbox_final_phase1_died)
+	add_child(e)
+
+func _on_sandbox_final_phase1_died() -> void:
+	GameManager.ui_popup_open = true
+	var panel := _sandbox_overlay_panel("Phase 1 down! Continue?", -70.0)
+	var btn := Button.new()
+	btn.text = "Continue"
+	btn.custom_minimum_size = Vector2(0, 46)
+	var overlay: Control = panel.get_parent()
+	btn.pressed.connect(func():
+		GameManager.ui_popup_open = false
+		overlay.queue_free()
+		_sandbox_final_phase2())
+	panel.add_child(btn)
+
+func _sandbox_final_phase2() -> void:
+	AudioManager.start_boss_music_phase2()
+	_spawn_sandbox_final_boss(500, 75.0, GameManager.play_rect.get_center(), 0)
+
+func _on_sandbox_boss_split(pos: Vector2, hp: int, radius: float, generation: int) -> void:
+	if get_tree().get_nodes_in_group("enemies").size() >= 8:
+		return
+	_spawn_sandbox_final_boss(hp, radius, pos + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized() * 70.0, generation)
+
+func _spawn_sandbox_final_boss(hp: int, radius: float, pos: Vector2, generation: int) -> void:
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type("BossF")
+	e.max_health = hp
+	e._radius = radius
+	e._split_generation = generation
+	e.enable_boss_split()
+	e.boss_split.connect(_on_sandbox_boss_split)
+	e.died.connect(_on_sandbox_final_phase2_died)
+	e.global_position = pos
+	add_child(e)
+
+# When the last phase-2 boss/split is gone, restore the background music and bring the dummy back.
+func _on_sandbox_final_phase2_died() -> void:
+	call_deferred("_check_final_boss_cleared")
+
+func _check_final_boss_cleared() -> void:
+	if get_tree().get_nodes_in_group("enemies").is_empty():
+		AudioManager.stop_boss_music()
+		_boss_fight_active = false
+		_spawn_dummy()
+
+# A dimmed centred VBox panel over the HUD (title label at top); returns the panel to add buttons to.
+func _sandbox_overlay_panel(title_text: String, top: float) -> VBoxContainer:
+	var overlay := Control.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	$HUD.add_child(overlay)
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.7)
+	overlay.add_child(dim)
+	var panel := VBoxContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -110.0
+	panel.offset_right = 110.0
+	panel.offset_top = top
+	panel.offset_bottom = -top
+	panel.add_theme_constant_override("separation", 10)
+	overlay.add_child(panel)
+	var lbl := Label.new()
+	lbl.text = title_text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(lbl)
+	return panel
+
 func _spawn_dummy(delay: float = 0.0) -> void:
+	if _boss_fight_active:
+		return
 	if delay > 0.0:
 		await get_tree().create_timer(delay).timeout
+	if _boss_fight_active:
+		return
 	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
 	e.sandbox_mode = true
 	e.sandbox_action = _enemy_action
@@ -454,3 +616,7 @@ func _spawn_dummy(delay: float = 0.0) -> void:
 
 func _on_menu_pressed() -> void:
 	SceneManager.go_to_menu()
+
+# Restore the background track if a boss-fight test left the boss music playing.
+func _exit_tree() -> void:
+	AudioManager.stop_boss_music()

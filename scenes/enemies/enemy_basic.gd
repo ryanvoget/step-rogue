@@ -14,7 +14,7 @@ enum Weapon { STAFF, LASER, FREEZE, WAVE, FLAME }
 # configure_type() applies one. Damage/fire cadence per weapon live in WEAPON_DMG/WEAPON_CD.
 const TYPES := {
 	"M":      {"hp": 20, "radius": 20.0, "weapon": Weapon.STAFF, "special": "",          "gold":  3, "color": Color(1.00, 0.55, 0.10)}, # Orange
-	"L":      {"hp": 20, "radius": 20.0, "weapon": Weapon.LASER, "special": "",          "gold":  3, "color": Color(0.25, 0.45, 0.95)}, # Blue
+	"L":      {"hp": 20, "radius": 20.0, "weapon": Weapon.LASER, "special": "",          "gold":  5, "color": Color(0.25, 0.45, 0.95)}, # Blue
 	"Void":   {"hp": 35, "radius": 25.0, "weapon": Weapon.LASER, "special": "fast_fire", "gold":  8, "color": Color(0.32, 0.34, 0.38)}, # Dark Grey
 	"Warp":   {"hp": 35, "radius": 25.0, "weapon": Weapon.LASER, "special": "teleport",  "gold":  8, "color": Color(0.60, 0.25, 0.85)}, # Purple
 	"Crater": {"hp": 35, "radius": 25.0, "weapon": Weapon.STAFF, "special": "fast_swing","gold":  8, "color": Color(0.45, 0.28, 0.13)}, # Brown
@@ -27,7 +27,7 @@ const TYPES := {
 	"Boss2":  {"hp": 500, "radius": 55.0, "weapon": Weapon.LASER, "special": "boss2", "gold": 100, "color": Color(0.06, 0.06, 0.09)}, # Black — laser 4x + teleport/8x burst
 	# Final boss (floor 35): laser 5x, lobs a random grenade every 5s. Phase 2 (world.gd enables it
 	# via enable_boss_split) also splits into two every 10s, each half HP. Gold 9999 (one big payout).
-	"BossF":  {"hp": 500, "radius": 75.0, "weapon": Weapon.LASER, "special": "boss_final", "gold": 9999, "color": Color(0.45, 0.40, 0.85)}, # Gradient blue/purple/green (approx)
+	"BossF":  {"hp": 1000, "radius": 75.0, "weapon": Weapon.LASER, "special": "boss_final", "gold": 9999, "color": Color(0.45, 0.40, 0.85)}, # phase 1 = 1000 HP; phase 2 respawns at 500 (world.gd)
 }
 # Damage per attack and cooldown (seconds) per weapon — not in the sheet, tuned here.
 const WEAPON_DMG := {Weapon.STAFF: 6, Weapon.LASER: 3, Weapon.FREEZE: 3, Weapon.WAVE: 4, Weapon.FLAME: 2}
@@ -42,14 +42,14 @@ const GRENADE_INTERVAL := 3.0    # Nova lobs a blast grenade this often
 const BOSS2_TELEPORT_INTERVAL := 10.0 # Boss2 blinks to a random spot this often
 const BOSS2_RAPID_DURATION := 2.0     # ...then fires at 8x (instead of 4x) for this long after
 const BOSSF_GRENADE_INTERVAL := 5.0   # Final boss lobs a random grenade this often
-const BOSSF_SPLIT_INTERVAL := 10.0    # Final boss phase 2: splits in two this often
-const BOSSF_SPLIT_MIN_HP := 70        # ...but stops splitting once its health drops below this
+const BOSSF_SPLIT_INTERVAL := 8.0     # Final boss phase 2: splits in two this often
+const BOSSF_MAX_SPLITS := 3           # ...but only 3 halvings deep (2^3 = 8 enemies max)
 const BOSSF_GRENADE_KINDS := ["molitov", "mesh", "freeze", "sticky"]
 
 # Phase 2 only: emitted when the final boss splits — world.gd spawns a second boss at `pos` with
 # `hp` health (this boss keeps the other half). Kept a signal so world.gd owns the enemy count and
 # the child's died wiring (the boss can't touch world's _enemies_alive itself).
-signal boss_split(pos: Vector2, hp: int)
+signal boss_split(pos: Vector2, hp: int, radius: float, generation: int)
 const ENEMY_GRENADE_DMG := 5
 const ENEMY_GRENADE_RADIUS := 100.0
 const COIN_SCENE := preload("res://scenes/coin/coin.tscn")
@@ -129,6 +129,8 @@ var _boss2_rapid_timer := 0.0                        # Boss2: remaining seconds 
 var _bossf_grenade_timer := BOSSF_GRENADE_INTERVAL   # Final boss: countdown to next grenade
 var _bossf_split_timer := BOSSF_SPLIT_INTERVAL       # Final boss phase 2: countdown to next split
 var _bossf_split_enabled := false                    # phase 2 flag (world.gd calls enable_boss_split)
+var _split_generation := 0                           # how many times this lineage has halved (cap 3)
+var _staff_range := STAFF_RANGE                      # melee reach (Boss1 gets 2.5x — set in configure_type)
 var _flame_active := false      # true while Solar is burning the player (drives the cone draw)
 var _flame_angle := 0.0
 
@@ -169,6 +171,11 @@ func _ready() -> void:
 	add_to_group("enemies")
 	# Give each enemy its own collision circle sized to its body radius (bigger units are
 	# physically bigger), rather than sharing the scene's fixed 18px shape.
+	_update_collision_radius()
+
+# Resizes the collision circle to the current _radius (called at spawn and when a final-boss split
+# shrinks the body).
+func _update_collision_radius() -> void:
 	var cs := get_node_or_null("CollisionShape2D")
 	if cs != null:
 		var shape := CircleShape2D.new()
@@ -193,12 +200,13 @@ func configure_type(type_key: String) -> void:
 	_attack_cd = WEAPON_CD[_weapon]
 	if _special == "fast_swing" or _special == "fast_fire":
 		_attack_cd *= 0.5
-	elif _special == "boss1":
-		_attack_cd /= 3.0 # Boss1 swings at 3x speed
 	elif _special == "boss2":
-		_attack_cd /= 4.0 # Boss2's base fire rate is 4x (ramps to 8x for 2s after each teleport)
+		_attack_cd /= 6.0 # Boss2's base fire rate is 6x (ramps to 20x for 2s after each teleport)
 	elif _special == "boss_final":
-		_attack_cd /= 5.0 # Final boss fires at 5x
+		_attack_cd /= 6.0 # Final boss fires at 6x
+	if _special == "boss1":
+		_attack_dmg = 5 # Boss1 swings at base speed but hits for 5
+	_staff_range = STAFF_RANGE * 2.5 if _special == "boss1" else STAFF_RANGE # Boss1 has extra reach
 	# Melee (STAFF) enemies move faster so they can close the gap and swing.
 	_move_speed = SPEED * MELEE_SPEED_MULT if _weapon == Weapon.STAFF else SPEED
 
@@ -408,7 +416,7 @@ func _tick_specials(delta: float) -> void:
 			if not is_blinded():
 				_throw_grenade_at_player()
 	elif _special == "boss2":
-		# Every 10s blink to a random spot, then rapid-fire at 8x for 2s before dropping back to 4x.
+		# Every 10s blink to a random spot, then rapid-fire at 20x for 2s before dropping back to 8x.
 		_boss2_teleport_timer -= delta
 		if _boss2_teleport_timer <= 0.0:
 			_boss2_teleport_timer = BOSS2_TELEPORT_INTERVAL
@@ -416,12 +424,12 @@ func _tick_specials(delta: float) -> void:
 			var mr := _radius + 8.0
 			global_position = Vector2(randf_range(tr.position.x + mr, tr.end.x - mr), randf_range(tr.position.y + mr, tr.end.y - mr))
 			_boss2_rapid_timer = BOSS2_RAPID_DURATION
-			_attack_cd = WEAPON_CD[Weapon.LASER] / 8.0
+			_attack_cd = WEAPON_CD[Weapon.LASER] / 20.0
 			queue_redraw()
 		if _boss2_rapid_timer > 0.0:
 			_boss2_rapid_timer -= delta
 			if _boss2_rapid_timer <= 0.0:
-				_attack_cd = WEAPON_CD[Weapon.LASER] / 4.0
+				_attack_cd = WEAPON_CD[Weapon.LASER] / 6.0
 	elif _special == "boss_final":
 		# Lob a random grenade at the player every 5s.
 		_bossf_grenade_timer -= delta
@@ -434,11 +442,15 @@ func _tick_specials(delta: float) -> void:
 			_bossf_split_timer -= delta
 			if _bossf_split_timer <= 0.0:
 				_bossf_split_timer = BOSSF_SPLIT_INTERVAL
-				if health > BOSSF_SPLIT_MIN_HP:
+				if _split_generation < BOSSF_MAX_SPLITS: # only 3 halvings deep
+					_split_generation += 1
 					var half: int = int(health / 2)
 					health = half
 					max_health = half
-					boss_split.emit(global_position, half)
+					_radius *= 0.5 # each halving also shrinks the body by half
+					_update_collision_radius()
+					queue_redraw()
+					boss_split.emit(global_position, half, _radius, _split_generation)
 
 # Phase 2: called by world.gd right after configure_type so this boss (and its split children)
 # start dividing every 10s.
@@ -522,7 +534,7 @@ func _tick(delta: float) -> void:
 
 	# The engage range depends on the weapon: STAFF strikes at its cone hitbox reach, FLAME burns
 	# at short range, and the projectile weapons hold at SHOOT_RANGE.
-	var engage := STAFF_RANGE
+	var engage := _staff_range
 	if _weapon == Weapon.FLAME:
 		engage = FLAME_RANGE
 	elif _weapon != Weapon.STAFF:
@@ -568,7 +580,7 @@ func _melee_attack(delta: float, dist: float) -> void:
 	_attack_timer -= delta
 	if _attack_timer <= 0.0:
 		# Strike when the player is within the staff's cone hitbox reach.
-		if dist <= STAFF_RANGE and _player.has_method("take_damage") and _blind_timer <= 0.0:
+		if dist <= _staff_range and _player.has_method("take_damage") and _blind_timer <= 0.0:
 			_player.take_damage(_attack_dmg, Vector2.ZERO, 0.0, 0.0, Color(1.0, 1.0, 1.0), false, self)
 		# Swing arc telegraph fires whether the strike landed or whiffed (blind).
 		_swing_angle = (_player.global_position - global_position).angle()
@@ -656,12 +668,24 @@ func _drop_coins() -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
-	var count: int = maxi(1, int(_gold / 5)) # each coin is worth 5 (coin.gd's VALUE)
+	# Make change for _gold in credit denominations (25/10/5/1 — coin.gd colours each), so the
+	# dropped coins sum to EXACTLY the enemy-data gold. Capped at 24 coins for safety.
+	var values: Array = []
+	var remaining: int = _gold
+	for d in [25, 10, 5, 1]:
+		while remaining >= d and values.size() < 24:
+			values.append(d)
+			remaining -= d
+	if remaining > 0 and not values.is_empty():
+		values[values.size() - 1] += remaining # dump any capped remainder onto the last coin
+	elif values.is_empty():
+		values.append(_gold)
+	var count: int = values.size()
 	for i in count:
 		var c: Node2D = COIN_SCENE.instantiate()
 		parent.add_child(c)
 		var a := TAU * float(i) / float(count) + randf_range(-0.4, 0.4)
-		c.burst(global_position, Vector2.RIGHT.rotated(a), randf_range(70.0, 140.0))
+		c.burst(global_position, Vector2.RIGHT.rotated(a), randf_range(70.0, 140.0), values[i])
 
 func _draw() -> void:
 	# Flame cone (drawn behind the body) while Solar is burning the player.
@@ -693,7 +717,7 @@ func _draw() -> void:
 		var pts := PackedVector2Array([Vector2.ZERO])
 		for i in range(SEG + 1):
 			var a := _swing_angle - half_arc + (2.0 * half_arc) * (float(i) / float(SEG))
-			pts.append(Vector2(STAFF_RANGE, 0.0).rotated(a))
+			pts.append(Vector2(_staff_range, 0.0).rotated(a))
 		draw_colored_polygon(pts, Color(1.0, 0.85, 0.5, 0.28))
 		for i in range(pts.size() - 1):
 			draw_line(pts[i], pts[i + 1], Color(1.0, 0.9, 0.6, 0.8), 2.0)

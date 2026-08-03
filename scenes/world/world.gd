@@ -28,7 +28,11 @@ const HALLWAY_VARIANTS := [
 const GRENADE_CHARGES := 5 # throwable grenades get this many uses per run instead of one-shot
 const TURRET_CHARGES := 5   # placeable turrets get this many deploys per run instead of one-shot
 const MINE_CHARGES := 5     # detonator mines get this many uses per run instead of one-shot
-const SHOP_EVERY_N_FLOORS := 10 # every 10th room is a shop room (no enemies, a shop-keeper NPC)
+const SHOP_EVERY_N_FLOORS := 10 # legacy (superseded by the banded shop floors below)
+# Shops appear on banded floors: the Nth shop lands somewhere in floors [8N .. 10N] — "every 8-10
+# of the total", not 8-10 after the last shop. Rolled once per run into _shop_floors (see _ready).
+const SHOP_BAND_MIN := 8
+const SHOP_BAND_MAX := 10
 const SHOP_TALK_RANGE := 66.0 # walk within this of the NPC to open the shop dialog
 const SHOP_HEAL_COST := 100
 const SHOP_CRATE_COST := 100
@@ -68,9 +72,18 @@ var _current_entry_side := -1     # the door THIS visit came in through (drawn b
 var _rooms_entered := 1           # distinct rooms discovered so far = current difficulty
 var _rooms_cleared := 0           # total rooms cleared (informational)
 var _reward_popup: Control = null
-# Weapon upgrades bought at shops, keyed by weapon name -> level (0..WEAPON_UPGRADE_MAX).
-# Level 1 = 1.5x damage, level 2 also = 1.5x fire rate. Applied in _reequip_weapon.
-var _weapon_upgrades := {}
+# Upgrade tree bought at shops. Two branches (damage, rate of fire), 5 bubbles each, per weapon.
+# Each dict maps weapon name -> tiers purchased (0..5). Bubble i multiplies by UPGRADE_MULTS[i]
+# on top of the previous, so the total is the product; costs scale UPGRADE_COSTS[i]. Damage tier
+# scales damage, rof tier speeds fire_rate (divides it). Applied in _reequip_weapon.
+const UPGRADE_MULTS := [1.1, 1.2, 1.3, 1.4, 1.5]
+const UPGRADE_COSTS := [100, 150, 200, 250, 300]
+const HP_UPGRADE_COSTS := [50, 50, 50, 50, 50] # HP branch: flat 50 per bubble
+const HP_PER_BUBBLE := 10                       # each HP bubble adds this to max HP (5 => +50)
+var _weapon_dmg_tier := {} # weapon name -> damage tier (0..5)
+var _weapon_rof_tier := {} # weapon name -> rate-of-fire tier (0..5)
+var _hp_tier := 0          # HP-upgrade tier (0..5) — run-scoped, not per weapon
+var _weapon_upgrades := {} # legacy (unused by the new tree; kept so old dead handlers still compile)
 var _return_to_shop := false      # true while a crate spin was launched from the shop, so the
                                   # equip/keep result returns to the shop instead of closing
 # Crate-spin tick state: while _crate_track is set, _process plays a tick each time a new card
@@ -81,6 +94,7 @@ var _crate_last_tick := -1
 
 func _ready() -> void:
 	GameManager.register_bullets_container(_bullets)
+	_compute_shop_floors() # roll this run's banded (8-10) shop floors
 	GameManager.coins = 0 # run-scoped currency — start every run at zero
 	GameManager.reset_run_stats() # fresh statistics for the new run (shown on the game-over screen)
 	_weapon_upgrades.clear()
@@ -206,8 +220,8 @@ func _apply_loadout() -> void:
 			SaveManager.equipped_defensive.get("shield_reflect", false), scol)
 	else:
 		_player.configure_shield(10.0, false)
-	# Artifact Health+ adds bonus max HP (idempotent — safe to re-run when the loadout re-applies).
-	_player.apply_bonus_max_health(int(ItemRegistry.artifact_num("bonus_hp", 0.0)))
+	# Bonus max HP from the Health+ artifact AND any HP-upgrade bubbles bought at shops.
+	_apply_hp_bonus()
 	if SaveManager.equipped_equipment.get("sidekick", false):
 		if _active_sidekick == null or not is_instance_valid(_active_sidekick):
 			_spawn_sidekick(SaveManager.equipped_equipment)
@@ -236,11 +250,12 @@ func _reequip_weapon() -> void:
 	if SaveManager.equipped_weapon.is_empty():
 		return
 	var w: Dictionary = SaveManager.equipped_weapon.duplicate(true)
-	var level: int = _weapon_upgrades.get(w.get("name", ""), 0)
-	if level >= 1 and w.get("damage") != null:
-		w["damage"] = int(round(float(w["damage"]) * 1.5))
-	if level >= 2 and w.get("fire_rate") != null:
-		w["fire_rate"] = float(w["fire_rate"]) / 1.5
+	var wname: String = w.get("name", "")
+	# Upgrade tree: damage tier multiplies damage, rof tier speeds fire rate (cumulative product).
+	if w.get("damage") != null:
+		w["damage"] = int(round(float(w["damage"]) * _upgrade_product(_weapon_dmg_tier.get(wname, 0))))
+	if w.get("fire_rate") != null:
+		w["fire_rate"] = float(w["fire_rate"]) / _upgrade_product(_weapon_rof_tier.get(wname, 0))
 	# Artifacts: Damage+ scales base weapon damage, Rate of Fire+ speeds up its fire rate.
 	if w.get("damage") != null:
 		w["damage"] = int(round(float(w["damage"]) * ItemRegistry.artifact_num("dmg_mult", 1.0)))
@@ -518,6 +533,8 @@ const TIER3_TYPES := ["Cryo", "Solar", "Nebula", "Nova"]
 # Boss floors: only the boss spawns (no other enemies) — see _spawn_enemies_for_room.
 const BOSS_BY_FLOOR := {15: "Boss1", 25: "Boss2"}
 const FINAL_BOSS_FLOOR := 35    # two-phase final boss + "I Got Soda" music (see _spawn_final_boss_*)
+const BOSS_FLOORS := [15, 25, 35] # never place a shop on a boss floor
+var _shop_floors := {}          # floor number -> true; rolled once per run in _ready
 const FINAL_BOSS_MAX_COUNT := 8 # phase-2 split cap so it can't runaway-multiply
 var _final_boss_phase := 0      # 0 = not fighting the final boss, 1/2 = which phase
 
@@ -644,6 +661,7 @@ func _start_final_boss_phase2() -> void:
 	AudioManager.start_boss_music_phase2()
 	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
 	e.configure_type("BossF")
+	e.max_health = 500 # phase 2 respawns at 500 HP (phase 1 was 1000)
 	e._gold = 0 # the 9999 payout is awarded once the whole phase-2 fight is won (see _on_enemy_died)
 	e.enable_boss_split()
 	e.global_position = GameManager.play_rect.get_center()
@@ -651,14 +669,16 @@ func _start_final_boss_phase2() -> void:
 	e.boss_split.connect(_on_boss_split)
 	_enemies.add_child(e)
 
-# A phase-2 boss split in two: spawn its twin at half HP (capped so it can't runaway-multiply).
-func _on_boss_split(pos: Vector2, hp: int) -> void:
+# A phase-2 boss split in two: spawn its twin at half HP + half size, at the same halving depth.
+func _on_boss_split(pos: Vector2, hp: int, radius: float, generation: int) -> void:
 	if _enemies.get_child_count() >= FINAL_BOSS_MAX_COUNT:
 		return
 	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
 	e.configure_type("BossF")
 	e._gold = 0 # only the original drops the payout
 	e.max_health = hp # _ready() sets health = max_health
+	e._radius = radius # matches the parent's halved size (_ready sizes the collider from _radius)
+	e._split_generation = generation # inherits the halving depth so it stops after 3
 	e.enable_boss_split()
 	e.global_position = pos + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized() * 70.0
 	e.died.connect(_on_enemy_died)
@@ -702,9 +722,23 @@ func _on_room_cleared() -> void:
 	GameManager.record_floor_cleared()
 	GameManager.room_cleared.emit()
 
-# Every SHOP_EVERY_N_FLOORS'th room (floor 10, 20, ...) is a shop room instead of a fight.
+# A shop room if this floor was rolled as one (banded 8-10 apart — see _compute_shop_floors).
 func _is_shop_room(number: int) -> bool:
-	return number > 0 and number % SHOP_EVERY_N_FLOORS == 0
+	return _shop_floors.has(number)
+
+# Rolls this run's shop floors: the Nth shop somewhere in [8N..10N], skipping boss floors.
+func _compute_shop_floors() -> void:
+	_shop_floors.clear()
+	for n in range(1, 30):
+		var lo: int = SHOP_BAND_MIN * n
+		var hi: int = SHOP_BAND_MAX * n
+		var f: int = randi_range(lo, hi)
+		var tries := 0
+		while f in BOSS_FLOORS and tries < 12:
+			f = randi_range(lo, hi)
+			tries += 1
+		if not (f in BOSS_FLOORS):
+			_shop_floors[f] = true
 
 # Picks a Hallway variant whose baked-in doors include the entry side (any variant for the starting
 # room, entry_side -1), so the loaded art always has a door where the player came from. Returns the
@@ -904,42 +938,16 @@ func _show_shop() -> void:
 	vbox.add_child(npc)
 
 	var coins_lbl := Label.new()
-	coins_lbl.text = "🪙 %d coins" % GameManager.coins
+	coins_lbl.text = "🪙 %d credits" % GameManager.coins
 	coins_lbl.add_theme_font_size_override("font_size", 15)
 	coins_lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.2))
 	coins_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(coins_lbl)
 
-	var can_heal: bool = _player != null and is_instance_valid(_player) and _player.health < _player.max_health
-	var heal_btn := Button.new()
-	heal_btn.text = "❤️  Full Heal — %d🪙" % _shop_price(SHOP_HEAL_COST)
-	heal_btn.custom_minimum_size = Vector2(0, 48)
-	heal_btn.disabled = GameManager.coins < _shop_price(SHOP_HEAL_COST) or not can_heal
-	heal_btn.pressed.connect(_shop_buy_heal)
-	vbox.add_child(heal_btn)
-
-	var crate_btn := Button.new()
-	crate_btn.text = "📦  Spin a Crate — %d🪙" % _shop_price(SHOP_CRATE_COST)
-	crate_btn.custom_minimum_size = Vector2(0, 48)
-	crate_btn.disabled = GameManager.coins < _shop_price(SHOP_CRATE_COST)
-	crate_btn.pressed.connect(_shop_choose_crate)
-	vbox.add_child(crate_btn)
-
-	var wname: String = SaveManager.equipped_weapon.get("name", "")
-	var level: int = _weapon_upgrades.get(wname, 0)
 	var up_btn := Button.new()
 	up_btn.custom_minimum_size = Vector2(0, 48)
-	if wname == "":
-		up_btn.text = "⬆️  No weapon to upgrade"
-		up_btn.disabled = true
-	elif level >= WEAPON_UPGRADE_MAX:
-		up_btn.text = "⬆️  %s — Max upgrades" % wname
-		up_btn.disabled = true
-	else:
-		var effect: String = "1.5× damage" if level == 0 else "1.5× fire rate"
-		up_btn.text = "⬆️  Upgrade %s (%s) — %d🪙" % [wname, effect, _shop_price(SHOP_UPGRADE_COST)]
-		up_btn.disabled = GameManager.coins < _shop_price(SHOP_UPGRADE_COST)
-	up_btn.pressed.connect(_shop_buy_upgrade)
+	up_btn.text = "⬆️  Purchase Upgrades"
+	up_btn.pressed.connect(_show_upgrade_tree)
 	vbox.add_child(up_btn)
 
 	var leave_btn := Button.new()
@@ -947,6 +955,115 @@ func _show_shop() -> void:
 	leave_btn.custom_minimum_size = Vector2(0, 44)
 	leave_btn.pressed.connect(_close_reward_popup)
 	vbox.add_child(leave_btn)
+
+# Cumulative multiplier for a branch tier (product of UPGRADE_MULTS[0..tier-1]).
+func _upgrade_product(tier: int) -> float:
+	var p := 1.0
+	for i in tier:
+		p *= UPGRADE_MULTS[i]
+	return p
+
+# Applies the current HP-upgrade tier (+ the Health+ artifact) as bonus max HP.
+func _apply_hp_bonus() -> void:
+	if _player != null and is_instance_valid(_player):
+		_player.apply_bonus_max_health(int(ItemRegistry.artifact_num("bonus_hp", 0.0)) + _hp_tier * HP_PER_BUBBLE)
+
+# Current tier for a branch ("dmg"/"rof" are per equipped weapon; "hp" is run-scoped).
+func _branch_tier(kind: String) -> int:
+	var wname: String = SaveManager.equipped_weapon.get("name", "")
+	match kind:
+		"dmg": return _weapon_dmg_tier.get(wname, 0)
+		"rof": return _weapon_rof_tier.get(wname, 0)
+		"hp":  return _hp_tier
+	return 0
+
+# Upgrade tree popup: three branches (damage / fire rate / HP), 5 bubbles each. Owned bubbles are
+# green, the next is buyable (shows its cost), the rest locked. Bought in order.
+func _show_upgrade_tree() -> void:
+	if _reward_popup != null and is_instance_valid(_reward_popup):
+		_reward_popup.queue_free()
+	GameManager.ui_popup_open = true
+	_reward_popup = _build_popup_shell()
+	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
+	var title := Label.new()
+	title.text = "⬆️  Purchase Upgrades"
+	title.add_theme_font_size_override("font_size", 18)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	var coins_lbl := Label.new()
+	coins_lbl.text = "🪙 %d credits" % GameManager.coins
+	coins_lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.2))
+	coins_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(coins_lbl)
+	var has_weapon: bool = SaveManager.equipped_weapon.get("name", "") != ""
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 8)
+	cols.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(cols)
+	cols.add_child(_build_upgrade_branch("dmg", "⚔ Dmg",  UPGRADE_COSTS, has_weapon))
+	cols.add_child(_build_upgrade_branch("rof", "🔥 Rate", UPGRADE_COSTS, has_weapon))
+	cols.add_child(_build_upgrade_branch("hp",  "❤ HP",   HP_UPGRADE_COSTS, true))
+	var back := Button.new()
+	back.text = "Back to Shop"
+	back.custom_minimum_size = Vector2(0, 44)
+	back.pressed.connect(_show_shop)
+	vbox.add_child(back)
+
+func _build_upgrade_branch(kind: String, label: String, costs: Array, enabled: bool) -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 5)
+	col.custom_minimum_size = Vector2(104, 0)
+	var h := Label.new()
+	h.text = label
+	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	h.add_theme_font_size_override("font_size", 13)
+	col.add_child(h)
+	var tier := _branch_tier(kind)
+	for i in 5:
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(0, 44)
+		b.add_theme_font_size_override("font_size", 11)
+		var gain: String = ("+%d" % HP_PER_BUBBLE) if kind == "hp" else ("×%.1f" % UPGRADE_MULTS[i])
+		if i < tier:
+			b.text = "✓ %s" % gain
+			b.disabled = true
+			b.add_theme_stylebox_override("normal", _bubble_style(Color(0.15, 0.55, 0.22)))
+			b.add_theme_stylebox_override("disabled", _bubble_style(Color(0.15, 0.55, 0.22)))
+			b.add_theme_color_override("font_color_disabled", Color(1, 1, 1))
+		elif i == tier and enabled:
+			b.text = "%s\n%d🪙" % [gain, costs[i]]
+			b.disabled = GameManager.coins < costs[i]
+			b.pressed.connect(_buy_upgrade_bubble.bind(kind, i))
+		else:
+			b.text = "%s\n%d🪙" % [gain, costs[i]]
+			b.disabled = true
+			b.modulate = Color(1, 1, 1, 0.4)
+		col.add_child(b)
+	return col
+
+func _bubble_style(c: Color) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = c
+	s.set_corner_radius_all(8)
+	s.set_content_margin_all(6)
+	return s
+
+func _buy_upgrade_bubble(kind: String, idx: int) -> void:
+	var costs: Array = HP_UPGRADE_COSTS if kind == "hp" else UPGRADE_COSTS
+	if idx != _branch_tier(kind) or GameManager.coins < costs[idx]:
+		return
+	GameManager.coins -= costs[idx]
+	match kind:
+		"hp":
+			_hp_tier = idx + 1
+			_apply_hp_bonus()
+		"dmg":
+			_weapon_dmg_tier[SaveManager.equipped_weapon.get("name", "")] = idx + 1
+			_reequip_weapon()
+		"rof":
+			_weapon_rof_tier[SaveManager.equipped_weapon.get("name", "")] = idx + 1
+			_reequip_weapon()
+	_show_upgrade_tree() # refresh the tree in place
 
 func _shop_buy_heal() -> void:
 	if GameManager.coins < _shop_price(SHOP_HEAL_COST):

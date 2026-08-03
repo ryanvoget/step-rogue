@@ -132,6 +132,8 @@ const GRAPPLE_DASH_ARRIVE_DIST := 8.0
 const GRAPPLE_WALL_CLEARANCE := 20.0 # stop this far short of the wall, not on top of it
 var _dash_target := Vector2.ZERO
 var _dash_active := false
+var _dash_time := 0.0
+const GRAPPLE_DASH_MAX_TIME := 1.5 # safety: never stay locked in a dash longer than this
 
 # Teleportation Bracelet (equipment): same green-joystick aim/release lifecycle as any other
 # scaleable_throw item (see world.gd/sandbox.gd's dispatch), but instead of a dotted line to
@@ -552,11 +554,18 @@ func teleport_to(pos: Vector2) -> void:
 # by the caller) — locks normal movement input until it arrives (see _dash_active in
 # _physics_process), same pattern as the sniper's armed-movement lock.
 func start_grapple_dash(target: Vector2) -> void:
-	_dash_target = target
+	# Clamp the destination to where the player is actually allowed to stand (same 16px inset the
+	# per-frame clamp uses), so the dash can always reach it instead of stalling against the bound.
+	var r: Rect2 = GameManager.play_rect
+	_dash_target = Vector2(
+		clampf(target.x, r.position.x + 16.0, r.end.x - 16.0),
+		clampf(target.y, r.position.y + 16.0, r.end.y - 16.0))
 	_dash_active = true
+	_dash_time = 0.0
 
 func _tick_dash() -> void:
-	if global_position.distance_to(_dash_target) <= GRAPPLE_DASH_ARRIVE_DIST:
+	_dash_time += get_physics_process_delta_time()
+	if global_position.distance_to(_dash_target) <= GRAPPLE_DASH_ARRIVE_DIST or _dash_time >= GRAPPLE_DASH_MAX_TIME:
 		_dash_active = false
 		velocity = Vector2.ZERO
 		return
