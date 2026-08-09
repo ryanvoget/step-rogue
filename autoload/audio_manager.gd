@@ -9,8 +9,8 @@ var _player: AudioStreamPlayer
 #  • Phase 2 (after Continue): restarts at 4:20 with NO fade-in, plays to the end (5:38), then loops
 #    the FULL song for as long as the fight lasts.
 # stop_boss_music() restores the normal background track (on clear or death).
-const BG_MUSIC_PATH := "res://assets/audio/11. Tractor Audit.wav"
-const SODA_MUSIC_PATH := "res://assets/audio/I_Got_Soda_Instrumental.wav"
+const BG_MUSIC_PATH := "res://assets/audio/11. Tractor Audit.ogg"
+const SODA_MUSIC_PATH := "res://assets/audio/I_Got_Soda_Instrumental.ogg"
 const SODA_LOOP_END := 259.0     # 4:19 — phase 1 loops 0..this
 const SODA_PHASE2_START := 260.5 # 4:20.5 — phase 2 begins here
 const MUSIC_FADE := 3.0          # fade in/out length (seconds)
@@ -27,11 +27,11 @@ var _soda_stream: AudioStream
 # 10, +drums at 15; the lowHP stem layers on whenever HP < 25% (see world.gd). Only active during a
 # run (world.gd), and muted while the final-boss "I Got Soda" track plays.
 const HATCH_PATHS := {
-	"hook":    "res://Music/hook_Hatches.wav",
-	"strings": "res://Music/strings_Hatches.wav",
-	"synths":  "res://Music/synths_Hatches.wav",
-	"drums":   "res://Music/drums_Hatches.wav",
-	"lowhp":   "res://Music/lowHP_Hatches.wav",
+	"hook":    "res://Music/hook_Hatches.ogg",
+	"strings": "res://Music/strings_Hatches.ogg",
+	"synths":  "res://Music/synths_Hatches.ogg",
+	"drums":   "res://Music/drums_Hatches.ogg",
+	"lowhp":   "res://Music/lowHP_Hatches.ogg",
 }
 var _hatch_players := {}          # layer name -> AudioStreamPlayer
 var _hatch_tweens := {}           # layer name -> active volume-fade Tween
