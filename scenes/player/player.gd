@@ -166,7 +166,26 @@ var _melee_knockback := 0.0
 var _melee_hits := 1 # >1 = that many staggered strikes per swing (e.g. dual daggers)
 var _melee_arc_degrees := DEFAULT_MELEE_ARC_DEGREES # per-weapon override (e.g. Metallic Whip's narrower cone)
 var _melee_stun := 0.0 # seconds to stun on hit, instead of/alongside knockback (e.g. Metallic Whip)
+# Electric Baton: a hit enemy arcs a lightning bolt to the nearest OTHER enemy within CHAIN_RANGE,
+# dealing half the melee damage + the same brief stun. _chain_bolts holds bolts to draw+fade.
+var _melee_chain := false
+const CHAIN_RANGE := 250.0
+const CHAIN_BOLT_DURATION := 0.18
+var _chain_bolts: Array = [] # each {from: Vector2, to: Vector2, remaining: float} in global coords
 var _is_swinging := false # true while the swing tween owns _weapon.rotation
+# Melee juice (applied to every melee swing/hit — see _play_melee_swing / _tick_melee_swings):
+const MELEE_WINDUP := 0.055           # anticipation pull-back time before the forward swing
+const MELEE_WINDUP_ANGLE := 0.6       # radians the weapon pulls back past the swing start
+const MELEE_RECOVERY := 0.05          # follow-through delay after the swing before moving again
+const MELEE_ANIM_SPEED := 9.1875      # the WEAPON swing plays this much faster than the hit window
+                                      # (1.75 * 1.75 * 3) — near-instant visual + very short movement
+                                      # lock, without changing the rate of fire or hit detection.
+const HITSTOP_DURATION := 0.045       # freeze-frame length on a connect (~2.5 frames)
+const HITSTOP_SCALE := 0.02           # near-freeze time scale during hitstop
+const SLASH_ARC_SCENE := preload("res://scenes/fx/slash_arc.tscn")
+const HIT_SPARK_SCENE := preload("res://scenes/fx/hit_spark.tscn")
+var _melee_lock_timer := 0.0          # while > 0, movement input is suppressed (swing + recovery)
+var _melee_no_lock := false           # Punching Gloves: never lock movement while swinging
 var _show_hitbox := false # true briefly while the melee hit cone is telegraphed
 var _hitbox_angle := 0.0
 
@@ -267,10 +286,13 @@ func _setup_sprite() -> void:
 	_apply_shirt_color()
 
 func _physics_process(delta: float) -> void:
+	# Follow-through: a melee swing briefly commits the player in place before they can move again.
+	if _melee_lock_timer > 0.0:
+		_melee_lock_timer = maxf(_melee_lock_timer - delta, 0.0)
 	# Locked between arming the sniper's charge bar and firing at the tapped target (so a
-	# touch meant to aim the shot can never also register as movement), and while a grapple
-	# dash is in progress (see _tick_dash, which sets velocity directly below instead).
-	var dir := Vector2.ZERO if (GameManager.sniper_armed or _dash_active) \
+	# touch meant to aim the shot can never also register as movement), while a grapple dash is in
+	# progress (see _tick_dash), and during a melee swing's commit/recovery window.
+	var dir := Vector2.ZERO if (GameManager.sniper_armed or _dash_active or _melee_lock_timer > 0.0) \
 		else Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if _frozen_slow_timer > 0.0:
 		_frozen_slow_timer -= delta
@@ -310,6 +332,7 @@ func _physics_process(delta: float) -> void:
 	_update_sprite(dir)
 	_update_weapon()
 	_tick_melee_swings(delta)
+	_tick_chain_bolts(delta)
 	_tick_regen(delta)
 	_tick_speed_boost(delta)
 	_tick_battery(delta)
@@ -408,6 +431,12 @@ func set_melee_stats(damage: int, attack_rate: float, melee_range: float, knockb
 	_melee_hits = hits
 	_melee_arc_degrees = arc_degrees if arc_degrees > 0.0 else DEFAULT_MELEE_ARC_DEGREES
 	_melee_stun = stun
+
+func set_chain_lightning(enabled: bool) -> void:
+	_melee_chain = enabled
+
+func set_melee_no_lock(enabled: bool) -> void:
+	_melee_no_lock = enabled
 
 # Applies a beam weapon's tuned gameplay stats (from ItemRegistry, e.g. Flamethrower) to
 # continuous-fire behavior. Always uses the aim joystick, like ranged weapons — a beam held
@@ -715,8 +744,20 @@ func _try_melee_attack() -> void:
 	_attack_timer.start()
 	AudioManager.play_swing()
 	var duration := clampf(_attack_timer.wait_time * 0.5, 0.05, 0.25)
-	_play_melee_swing(duration)
+	# The weapon swing plays faster than the hit window (75% faster) — a snappier visual and a
+	# shorter movement lock — while the hit window + telegraph keep their full duration so detection
+	# stays as reliable as before.
+	var anim_dur := duration / MELEE_ANIM_SPEED
+	# Shrink the wind-up for very fast swings so the anticipation never dominates (and doesn't read
+	# as a delay); at normal speeds it stays the full MELEE_WINDUP.
+	var windup_time := minf(MELEE_WINDUP, anim_dur * 0.5)
+	# Follow-through: commit the player in place for the windup + (fast) swing + a short recovery —
+	# EXCEPT the Punching Gloves, which keep the player fully mobile while swinging (no lock).
+	if not _melee_no_lock:
+		_melee_lock_timer = windup_time + anim_dur + MELEE_RECOVERY
+	_play_melee_swing(anim_dur, windup_time)
 	_flash_melee_hitbox(duration)
+	_spawn_slash_arc(_mouse_angle) # independent weapon-arc trail
 	var angle := _mouse_angle
 	_start_melee_swing(angle, duration)
 	# Extra staggered strikes for dual-wielded melee weapons (e.g. Daggers): each lands
@@ -758,15 +799,75 @@ func _tick_melee_swings(delta: float) -> void:
 				var knockback_dir := to_enemy.normalized() if dist > 0.001 else Vector2.RIGHT.rotated(swing["angle"])
 				enemy.take_damage(_melee_damage, knockback_dir, _melee_knockback, _melee_stun)
 				swing["hit"][enemy] = true
+				_spawn_hit_spark(enemy.global_position) # impact sparks at each enemy hit
+				if _melee_chain:
+					_chain_lightning_from(enemy)
 				# Lifesteal+ artifact: each melee hit on an enemy heals the player.
 				var ls: int = int(ItemRegistry.artifact_num("melee_lifesteal", 0.0))
 				if ls > 0:
 					heal(ls)
-				# Count this swing as "connected" once, the first time it lands on anything.
+				# Impact juice — once per swing, on the first thing it connects with: hitstop, screen
+				# shake (scaled by damage), a sharp impact sound, and a haptic buzz, at the frame of
+				# contact.
 				if not swing["scored"]:
 					swing["scored"] = true
 					GameManager.record_melee_hit()
+					# Hitstop briefly freezes everything (incl. movement), so the fully-mobile Punching
+					# Gloves skip it to stay fluid; shake/sound/sparks don't impede movement, so they stay.
+					if not _melee_no_lock:
+						GameManager.hitstop(HITSTOP_SCALE, HITSTOP_DURATION)
+					GameManager.add_screen_shake(clampf(float(_melee_damage) / 18.0, 0.15, 0.55))
+					AudioManager.play_impact()
+					# NOTE: Input.vibrate_handheld() segfaults (SIGSEGV) in the SwiftGodotKit embedded
+					# host — its iOS haptic backend isn't initialised here. Left out for now; the
+					# haptic feedback needs a native bridge hook instead.
 	_active_melee_swings = _active_melee_swings.filter(func(s): return s["remaining"] > 0.0)
+
+# Electric Baton: arc a bolt from a just-hit enemy to the nearest OTHER enemy within CHAIN_RANGE,
+# dealing half the baton's damage + the same brief stun, and record the bolt for a quick draw+fade.
+func _chain_lightning_from(source: Node2D) -> void:
+	var best: Node2D = null
+	var best_d := CHAIN_RANGE
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e == source or not is_instance_valid(e) or not e.has_method("take_damage"):
+			continue
+		var d: float = source.global_position.distance_to(e.global_position)
+		if d <= best_d:
+			best_d = d
+			best = e
+	if best == null:
+		return
+	var chain_dmg: int = maxi(1, int(_melee_damage / 2))
+	best.take_damage(chain_dmg, Vector2.ZERO, 0.0, _melee_stun)
+	_chain_bolts.append({"from": source.global_position, "to": best.global_position, "remaining": CHAIN_BOLT_DURATION})
+	queue_redraw()
+
+func _tick_chain_bolts(delta: float) -> void:
+	if _chain_bolts.is_empty():
+		return
+	for b in _chain_bolts:
+		b["remaining"] -= delta
+	_chain_bolts = _chain_bolts.filter(func(b): return b["remaining"] > 0.0)
+	queue_redraw()
+
+# Jagged lightning bolts from the last melee hit (Electric Baton chain). Drawn in local space, so
+# the stored global endpoints are converted relative to the player.
+func _draw_chain_bolts() -> void:
+	for b in _chain_bolts:
+		var a: Vector2 = b["from"] - global_position
+		var c: Vector2 = b["to"] - global_position
+		var seg := 5
+		var pts := PackedVector2Array()
+		for i in range(seg + 1):
+			var t := float(i) / float(seg)
+			var p := a.lerp(c, t)
+			if i != 0 and i != seg:
+				var perp := (c - a).orthogonal().normalized()
+				p += perp * randf_range(-5.0, 5.0) # jitter for a jagged arc
+			pts.append(p)
+		var alpha: float = clampf(b["remaining"] / CHAIN_BOLT_DURATION, 0.0, 1.0)
+		for i in range(pts.size() - 1):
+			draw_line(pts[i], pts[i + 1], Color(0.6, 0.85, 1.0, alpha), 2.0)
 
 # Ticks the beam every physics frame it's held: ongoing contact accrues toward a damage tick
 # every _beam_tick_interval seconds (fractional seconds carry over, so DPS is exact rather
@@ -812,15 +913,44 @@ func _stop_beam() -> void:
 	_beam_active = false
 	queue_redraw()
 
-# Quick arc swipe of the weapon sprite across the swing cone for visual feedback.
+# Arc swipe of the weapon sprite with anticipation + a fast, accelerating forward snap:
+#  • Wind-up: the weapon eases BACK past the swing start (anticipation), so the swing reads before
+#    it lands.
+#  • Swing: it snaps forward across the cone on an ease-IN curve (slow start → high-speed finish).
 # Duration scales with attack rate so faster/slower melee weapons still read as a "swing".
-func _play_melee_swing(duration: float) -> void:
+func _play_melee_swing(duration: float, windup_time: float) -> void:
 	var half_arc := deg_to_rad(_melee_arc_degrees / 2.0)
 	_is_swinging = true
-	_weapon.rotation = _mouse_angle - half_arc
+	var start := _mouse_angle - half_arc
+	var windup_angle := start - MELEE_WINDUP_ANGLE
+	var end := _mouse_angle + half_arc
+	_weapon.rotation = start
 	var tween := create_tween()
-	tween.tween_property(_weapon, "rotation", _mouse_angle + half_arc, duration)
+	tween.tween_property(_weapon, "rotation", windup_angle, windup_time).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_weapon, "rotation", end, duration).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
 	tween.finished.connect(func(): _is_swinging = false)
+
+# Spawns the independent slash-arc trail in the world (not parented to the player) so it sweeps and
+# fades on its own, never cut short if the swing is cancelled.
+func _spawn_slash_arc(angle: float) -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var arc: Node2D = SLASH_ARC_SCENE.instantiate()
+	parent.add_child(arc)
+	arc.global_position = global_position
+	arc.setup(angle, _melee_arc_degrees, _melee_range, Color(0.75, 0.9, 1.0))
+
+# Independent impact sparks at a hit point (world-parented, self-freeing).
+func _spawn_hit_spark(pos: Vector2) -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var spark: Node2D = HIT_SPARK_SCENE.instantiate()
+	parent.add_child(spark)
+	spark.global_position = pos
+	spark.setup(Color(1.0, 0.95, 0.6))
+
 
 # Draws the exact cone/range used by _apply_melee_hit() so it's obvious what will
 # actually get hit, fading in sync with the swing animation.
@@ -853,6 +983,8 @@ func _draw() -> void:
 			draw_line(points[i], points[i + 1], Color(1.0, 0.9, 0.2, 0.7), 2.0)
 	if _beam_active:
 		_draw_beam()
+	if not _chain_bolts.is_empty():
+		_draw_chain_bolts()
 	if _force_push_active:
 		_draw_force_push_cone()
 	if _invincible_active or _room_invincible_timer > 0.0:

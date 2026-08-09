@@ -60,6 +60,14 @@ func _refresh() -> void:
 	_free_children(_filter_row)
 	_free_children(_content)
 
+	# Total hedge tokens (purple), shown above the item grid.
+	var hedge := Label.new()
+	hedge.text = "🟣  Hedge Tokens: %d" % SaveManager.hedge_tokens
+	hedge.add_theme_font_size_override("font_size", 15)
+	hedge.add_theme_color_override("font_color", Color(0.72, 0.45, 0.98))
+	hedge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(hedge)
+
 	if items.is_empty():
 		_build_empty_state()
 		return

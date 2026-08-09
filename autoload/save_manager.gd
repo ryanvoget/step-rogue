@@ -21,9 +21,63 @@ var equipped_defensive: Dictionary = {}
 # never enter the trade-up pool (artifacts can't be traded up).
 var artifact_inventory: Array = []
 var equipped_artifact: Dictionary = {}
+# Hedge tokens: earned by beating the final boss. A run that ISN'T won destroys the equipped loadout
+# (removed from inventory + unequipped). Applying a token to an equipped slot protects that item —
+# on a losing run the item survives and the token is spent. hedge_tokens is the unspent pool;
+# hedged_slots holds the equip-slot keys currently protected. See resolve_run_loss / grant_hedge_token.
+var hedge_tokens: int = 0
+var hedged_slots: Dictionary = {}
+
+const EQUIP_SLOTS := ["equipped_weapon", "equipped_equipment", "equipped_defensive", "equipped_artifact"]
 
 func _ready() -> void:
 	_load()
+
+func is_slot_hedged(key: String) -> bool:
+	return hedged_slots.has(key)
+
+# Move a token from the pool onto an equipped slot (protecting whatever's in it).
+func apply_hedge(key: String) -> void:
+	if hedge_tokens <= 0 or hedged_slots.has(key) or get_slot(key).is_empty():
+		return
+	hedge_tokens -= 1
+	hedged_slots[key] = true
+	_save()
+
+# Take a token back off a slot and return it to the pool (e.g. to move it to a different item).
+func remove_hedge(key: String) -> void:
+	if not hedged_slots.has(key):
+		return
+	hedged_slots.erase(key)
+	hedge_tokens += 1
+	_save()
+
+func grant_hedge_token() -> void:
+	hedge_tokens += 1
+	_save()
+
+# End-of-run loss (called when a run ends WITHOUT beating the final boss). Each equipped item is
+# destroyed — removed from its inventory and unequipped — UNLESS its slot is hedged, in which case
+# the item is kept and the token is spent (consumed, not returned to the pool).
+func resolve_run_loss() -> void:
+	for key in EQUIP_SLOTS:
+		var item: Dictionary = get_slot(key)
+		if item.is_empty():
+			continue
+		if hedged_slots.has(key):
+			hedged_slots.erase(key) # token consumed protecting this item
+		else:
+			_remove_one_owned(item.get("name", ""), key == "equipped_artifact")
+			set_slot(key, {})
+	_save()
+
+# Removes one owned copy (by name) of a lost item from the matching inventory.
+func _remove_one_owned(item_name: String, is_artifact: bool) -> void:
+	var inv: Array = artifact_inventory if is_artifact else inventory
+	for i in range(inv.size()):
+		if inv[i].get("name", "") == item_name:
+			inv.remove_at(i)
+			return
 
 func add_steps(amount: int) -> void:
 	step_bank += amount
@@ -105,6 +159,8 @@ func save() -> void:
 		"equipped_defensive": equipped_defensive,
 		"artifact_inventory": artifact_inventory,
 		"equipped_artifact": equipped_artifact,
+		"hedge_tokens": hedge_tokens,
+		"hedged_slots": hedged_slots,
 	}))
 	file.close()
 
@@ -131,3 +187,5 @@ func _load() -> void:
 	equipped_defensive = parsed.get("equipped_defensive", {})
 	artifact_inventory = parsed.get("artifact_inventory", [])
 	equipped_artifact  = parsed.get("equipped_artifact", {})
+	hedge_tokens       = int(parsed.get("hedge_tokens", 0))
+	hedged_slots       = parsed.get("hedged_slots", {})

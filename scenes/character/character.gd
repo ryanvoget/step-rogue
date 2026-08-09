@@ -189,7 +189,7 @@ func _refresh_slot(idx: int) -> void:
 		btn.icon = load("res://assets/icons/" + equipped["file"])
 		btn.add_theme_constant_override("icon_max_width", 44)
 		btn.add_theme_color_override("font_color", RARITY_LABEL.get(rarity, Color(1, 1, 1)))
-		btn.text = "\n" + equipped["name"]
+		btn.text = ("\n🟣 " if SaveManager.is_slot_hedged(slot["key"]) else "\n") + equipped["name"]
 	# Points this item contributes, shown to the right of the slot (outside the button box).
 	# Artifacts have no equip cost for now, so their slot shows no point label.
 	if idx < _pts_lbls.size():
@@ -268,6 +268,8 @@ func _open_picker(slot_idx: int) -> void:
 		unequip_btn.text = "Unequip  (" + cur["name"] + ")"
 		unequip_btn.pressed.connect(_on_unequip.bind(slot_idx, overlay))
 		vbox.add_child(unequip_btn)
+		# Hedge token toggle: protect this item so it survives a lost run (or free the token to move it).
+		vbox.add_child(_make_hedge_toggle(slot_idx))
 
 	# Item list or empty message
 	if inv.is_empty():
@@ -345,7 +347,39 @@ func _rarity_box(rarity: String, hover: bool) -> StyleBoxFlat:
 	s.set_content_margin_all(6)
 	return s
 
+# Purple hedge-token toggle for a slot: apply (protect the equipped item on a lost run) or remove
+# (free the token to move it elsewhere). Disabled/greyed when there are none to apply.
+func _make_hedge_toggle(slot_idx: int) -> Control:
+	var key: String = SLOTS[slot_idx]["key"]
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(0, 40)
+	if SaveManager.is_slot_hedged(key):
+		btn.text = "🟣  Remove Hedge Token"
+		btn.pressed.connect(_on_hedge_toggle.bind(slot_idx, false))
+	elif SaveManager.hedge_tokens > 0:
+		btn.text = "🟣  Apply Hedge Token (%d)" % SaveManager.hedge_tokens
+		btn.pressed.connect(_on_hedge_toggle.bind(slot_idx, true))
+	else:
+		btn.text = "🟣  No hedge tokens"
+		btn.disabled = true
+	return btn
+
+func _on_hedge_toggle(slot_idx: int, apply: bool) -> void:
+	var key: String = SLOTS[slot_idx]["key"]
+	if apply:
+		SaveManager.apply_hedge(key)
+	else:
+		SaveManager.remove_hedge(key)
+	_refresh_slot(slot_idx)
+	if _current_overlay != null and is_instance_valid(_current_overlay):
+		_current_overlay.queue_free()
+	_current_overlay = null
+	_open_picker(slot_idx) # rebuild so the toggle reflects the new state
+
 func _on_equip(slot_idx: int, item: Dictionary, overlay: Control) -> void:
+	# Swapping the item frees any hedge token on this slot (the token protected the old item).
+	if SaveManager.is_slot_hedged(SLOTS[slot_idx]["key"]):
+		SaveManager.remove_hedge(SLOTS[slot_idx]["key"])
 	SaveManager.set_slot(SLOTS[slot_idx]["key"], item)
 	_refresh_slot(slot_idx)
 	_refresh_points()
@@ -353,6 +387,8 @@ func _on_equip(slot_idx: int, item: Dictionary, overlay: Control) -> void:
 	overlay.queue_free()
 
 func _on_unequip(slot_idx: int, overlay: Control) -> void:
+	if SaveManager.is_slot_hedged(SLOTS[slot_idx]["key"]):
+		SaveManager.remove_hedge(SLOTS[slot_idx]["key"])
 	SaveManager.set_slot(SLOTS[slot_idx]["key"], {})
 	_refresh_slot(slot_idx)
 	_refresh_points()

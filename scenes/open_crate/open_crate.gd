@@ -29,7 +29,8 @@ const RARITY_COLORS := {
 @onready var _result_img:     TextureRect = $ResultScreen/VBox/ResultCard/CardVBox/ItemImage
 @onready var _result_name:    Label       = $ResultScreen/VBox/ResultCard/CardVBox/ItemName
 
-const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"], ["medical", "🧰  Medical"], ["artifact", "🏺  Artifacts"]]
+# Artifacts are no longer bought from crates — they're found during the run instead.
+const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"], ["medical", "🧰  Medical"]]
 
 var _spinning := false        # true while the reel is scrolling — see _process ticker
 var _spin_last_tick := -1

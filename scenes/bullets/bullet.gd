@@ -38,6 +38,7 @@ const WAVE_LENGTH_RATIO := 0.5 # travel-axis size relative to transverse width, 
 var _distance_traveled := 0.0
 var _wave_width := WAVE_MIN_WIDTH
 var _wave_length := WAVE_MIN_WIDTH * WAVE_LENGTH_RATIO
+var _hit_bodies := {} # enemies already damaged by a piercing wave, so each is hit only once
 
 @onready var _collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var _base_collision_radius: float = _collision_shape.shape.radius
@@ -52,14 +53,18 @@ func _process(delta: float) -> void:
 	# a ray-sweep along this frame's motion catches that case. Normal-speed bullets are
 	# unaffected: if the ray finds nothing, movement + the existing overlap detection behave
 	# exactly as before.
-	var space_state := get_world_2d().direct_space_state
-	var query := PhysicsRayQueryParameters2D.create(global_position, global_position + motion)
-	query.collision_mask = collision_mask
-	var result := space_state.intersect_ray(query)
-	if result and result.collider.is_in_group(target_group):
-		global_position = result.position
-		_apply_hit(result.collider)
-		return
+	# The wave (Wave Ray Gun) pierces — it passes through and damages everything in its path — so it
+	# skips the single-hit ray-sweep and relies purely on the Area2D overlap (_on_body_entered),
+	# tracking who it's already hit. Normal bullets keep the ray-sweep for high-speed tunnelling.
+	if wave_max_width <= 0.0:
+		var space_state := get_world_2d().direct_space_state
+		var query := PhysicsRayQueryParameters2D.create(global_position, global_position + motion)
+		query.collision_mask = collision_mask
+		var result := space_state.intersect_ray(query)
+		if result and result.collider.is_in_group(target_group):
+			global_position = result.position
+			_apply_hit(result.collider)
+			return
 	position += motion
 	if wave_max_width > 0.0:
 		_distance_traveled += speed * delta
@@ -78,10 +83,20 @@ func _on_body_entered(body: Node2D) -> void:
 	_apply_hit(body)
 
 func _apply_hit(body: Node2D) -> void:
-	if body.is_in_group(target_group):
+	var is_target := body.is_in_group(target_group)
+	if is_target:
+		# A piercing wave hits each enemy only once, then keeps going (no queue_free below).
+		if wave_max_width > 0.0 and _hit_bodies.has(body):
+			return
+		if wave_max_width > 0.0:
+			_hit_bodies[body] = true
 		body.take_damage(damage, transform.x, knockback_force, freeze_duration, FREEZE_COLOR, freeze_duration > 0.0, shooter)
 		if from_player:
 			GameManager.record_shot_hit()
+	# Wave passes through enemies but still stops on a wall (non-target body); normal bullets die on
+	# any hit.
+	if wave_max_width > 0.0 and is_target:
+		return
 	queue_free()
 
 func _draw() -> void:

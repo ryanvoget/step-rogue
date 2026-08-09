@@ -16,12 +16,13 @@ const RARITY_LABEL := {
 }
 const ORDER := ["legendary", "epic", "rare", "uncommon", "common"]
 
-const TYPE_ORDER  := ["all", "weapon", "equipment", "defensive"]
+const TYPE_ORDER  := ["all", "weapon", "equipment", "defensive", "artifact"]
 const TYPE_LABELS := {
 	"all":       "All",
 	"weapon":    "Weapon",
 	"equipment": "Equipment",
 	"defensive": "Defense",
+	"artifact":  "Artifact",
 }
 
 const PILL_ACTIVE_BG       := Color(0.18, 0.42, 0.78)
@@ -102,8 +103,15 @@ func _free_children(parent: Node) -> void:
 		c.free()
 
 func _build_list() -> void:
-	var filtered: Array = ItemRegistry.ITEMS if _active_filter == "all" \
-		else ItemRegistry.ITEMS.filter(func(i): return i.get("type", "") == _active_filter)
+	# Artifacts (from ItemRegistry.ARTIFACTS) are listed under the regular items on "All", or on
+	# their own with the "Artifact" filter. Everything else comes from ItemRegistry.ITEMS.
+	var filtered: Array
+	if _active_filter == "artifact":
+		filtered = ItemRegistry.ARTIFACTS.duplicate()
+	elif _active_filter == "all":
+		filtered = ItemRegistry.ITEMS + ItemRegistry.ARTIFACTS
+	else:
+		filtered = ItemRegistry.ITEMS.filter(func(i): return i.get("type", "") == _active_filter)
 
 	for rarity in ORDER:
 		var group: Array = filtered.filter(func(i): return i.get("rarity", "") == rarity)
@@ -155,7 +163,13 @@ func _make_row(item: Dictionary) -> Control:
 	name_col.add_child(lbl_name)
 
 	var lbl_type := Label.new()
-	lbl_type.text = TYPE_LABELS.get(str(item.get("type", "")), "")
+	# Artifacts show their effect description right in the row; other items show their type.
+	if item.get("type", "") == "artifact":
+		lbl_type.text = str(item.get("effect", ""))
+		lbl_type.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl_type.custom_minimum_size = Vector2(180, 0)
+	else:
+		lbl_type.text = TYPE_LABELS.get(str(item.get("type", "")), "")
 	lbl_type.add_theme_font_size_override("font_size", 11)
 	lbl_type.add_theme_color_override("font_color", Color(0.65, 0.68, 0.75))
 	name_col.add_child(lbl_type)
@@ -190,6 +204,11 @@ func _make_stat_label(item: Dictionary) -> Label:
 	var lbl := Label.new()
 	lbl.add_theme_font_size_override("font_size", 15)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+
+	if item.get("type", "") == "artifact":
+		lbl.text = "🏺"
+		lbl.add_theme_color_override("font_color", Color(0.80, 0.55, 1.00))
+		return lbl
 
 	var damage = item.get("damage")
 	var heal = item.get("heal")
@@ -333,6 +352,9 @@ func _show_item_popup(item: Dictionary) -> void:
 # into readable lines, so a new weapon/equipment field automatically shows up here without
 # needing per-item or per-weapon-type popup code.
 func _build_stat_lines(item: Dictionary) -> Array:
+	# Artifacts are passive — their whole description is the effect line.
+	if item.get("type", "") == "artifact":
+		return ["Passive artifact", str(item.get("effect", "")), "Found during a run (bar slot machine). Up to 3 stack."]
 	var lines: Array = []
 	var is_beam: bool       = item.get("beam_range") != null
 	var is_melee: bool      = item.get("melee_range") != null

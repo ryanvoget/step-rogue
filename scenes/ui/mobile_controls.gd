@@ -18,9 +18,11 @@ var _aim_offset:  Vector2 = Vector2.ZERO
 # ── Equipment control (above the fire button): a tap-button for placeables (Turret),
 # or a drag-to-aim/release-to-throw joystick for throwables (Blast Grenade) ────────────
 const DEPLOY_BUTTON_RADIUS := 32.0
-const THROW_RADIUS         := 40.0 # joystick ring radius for throwables — smaller than
-                                    # JOYSTICK_RADIUS so it clears the aim ring above it
-const THROW_KNOB_RADIUS    := 18.0
+const THROW_RADIUS         := 72.0 # joystick ring radius for throwables. Bigger = LESS sensitive:
+                                    # the aim direction is the exact angle from ring-centre to the
+                                    # finger, so a larger ring means more finger travel per degree,
+                                    # making it easier to fine-tune where a grenade is guided.
+const THROW_KNOB_RADIUS    := 22.0
 const DEPLOY_TOUCH_RADIUS  := THROW_RADIUS + 6.0 # tap-catch radius, kept close to the drawn ring
                                     # so it doesn't overlap the fire joystick zone or the health
                                     # bar / heal button it sits beside

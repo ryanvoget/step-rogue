@@ -4,6 +4,9 @@ uniform float target_hue : hint_range(0.0, 1.0) = 0.583;
 // When true, the shirt pixels are turned near-black instead of hue-shifted (used by the shop
 // NPC — see shop_npc.gd — to distinguish it from the player).
 uniform bool make_black = false;
+// When true, the shirt pixels are turned near-white instead (used by the bartender — see
+// bartender.gd — to read as a distinct character from the black-shirt patrons/shop keeper).
+uniform bool make_white = false;
 
 vec3 rgb_to_hsv(vec3 c) {
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -30,6 +33,10 @@ void fragment() {
 				// Keep a little of the original shading so folds still read, but very dark.
 				hsv.y = 0.0;
 				hsv.z = hsv.z * 0.18;
+			} else if (make_white) {
+				// Desaturate to white, brightened, keeping shading so folds still read.
+				hsv.y = 0.0;
+				hsv.z = clamp(hsv.z * 1.4 + 0.25, 0.0, 1.0);
 			} else {
 				hsv.x = target_hue;
 			}

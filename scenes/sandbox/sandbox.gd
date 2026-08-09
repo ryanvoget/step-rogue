@@ -472,17 +472,17 @@ func _show_boss_picker() -> void:
 	panel.anchor_right = 0.5
 	panel.anchor_top = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -110.0
-	panel.offset_right = 110.0
-	panel.offset_top = -110.0
-	panel.offset_bottom = 110.0
+	panel.offset_left = -115.0
+	panel.offset_right = 115.0
+	panel.offset_top = -150.0
+	panel.offset_bottom = 150.0
 	panel.add_theme_constant_override("separation", 10)
 	overlay.add_child(panel)
 	var title := Label.new()
 	title.text = "Fight which boss?"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(title)
-	for opt in [["Boss1", "🗡  Boss 1"], ["Boss2", "🔫  Boss 2"], ["BossF", "☠  Boss Final"]]:
+	for opt in [["Boss1", "🗡  Boss 1"], ["Boss2", "🔫  Boss 2"], ["BossF_P1", "☠  Final — Phase 1"], ["BossF_P2", "☠  Final — Phase 2"]]:
 		var btn := Button.new()
 		btn.text = opt[1]
 		btn.custom_minimum_size = Vector2(0, 46)
@@ -509,35 +509,24 @@ func _start_boss_fight(kind: String) -> void:
 	for n in get_tree().get_nodes_in_group("enemies"):
 		if is_instance_valid(n):
 			n.queue_free()
-	# The final boss uses the full two-phase + "I Got Soda" music flow, same as the base game.
-	if kind == "BossF":
-		_sandbox_final_phase1()
-		return
-	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
-	e.configure_type(kind)
-	e.global_position = GameManager.play_rect.get_center()
-	add_child(e)
-
-func _sandbox_final_phase1() -> void:
-	AudioManager.start_boss_music_phase1()
-	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
-	e.configure_type("BossF") # 1000 HP, no split yet
-	e.global_position = GameManager.play_rect.get_center()
-	e.died.connect(_on_sandbox_final_phase1_died)
-	add_child(e)
-
-func _on_sandbox_final_phase1_died() -> void:
-	GameManager.ui_popup_open = true
-	var panel := _sandbox_overlay_panel("Phase 1 down! Continue?", -70.0)
-	var btn := Button.new()
-	btn.text = "Continue"
-	btn.custom_minimum_size = Vector2(0, 46)
-	var overlay: Control = panel.get_parent()
-	btn.pressed.connect(func():
-		GameManager.ui_popup_open = false
-		overlay.queue_free()
-		_sandbox_final_phase2())
-	panel.add_child(btn)
+	# The final boss's two phases are separately selectable here, each with its own "I Got Soda"
+	# section. Phase 1 = the 1000-HP boss (phase-1 music); phase 2 = the 500-HP splitting boss
+	# (phase-2 music). Both restore the background music + dummy once cleared.
+	match kind:
+		"BossF_P1":
+			AudioManager.start_boss_music_phase1()
+			var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+			e.configure_type("BossF") # 1000 HP, no split
+			e.global_position = GameManager.play_rect.get_center()
+			e.died.connect(_on_sandbox_final_phase2_died) # restores when cleared
+			add_child(e)
+		"BossF_P2":
+			_sandbox_final_phase2()
+		_:
+			var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+			e.configure_type(kind)
+			e.global_position = GameManager.play_rect.get_center()
+			add_child(e)
 
 func _sandbox_final_phase2() -> void:
 	AudioManager.start_boss_music_phase2()
@@ -569,34 +558,6 @@ func _check_final_boss_cleared() -> void:
 		AudioManager.stop_boss_music()
 		_boss_fight_active = false
 		_spawn_dummy()
-
-# A dimmed centred VBox panel over the HUD (title label at top); returns the panel to add buttons to.
-func _sandbox_overlay_panel(title_text: String, top: float) -> VBoxContainer:
-	var overlay := Control.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	$HUD.add_child(overlay)
-	var dim := ColorRect.new()
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0, 0, 0, 0.7)
-	overlay.add_child(dim)
-	var panel := VBoxContainer.new()
-	panel.anchor_left = 0.5
-	panel.anchor_right = 0.5
-	panel.anchor_top = 0.5
-	panel.anchor_bottom = 0.5
-	panel.offset_left = -110.0
-	panel.offset_right = 110.0
-	panel.offset_top = top
-	panel.offset_bottom = -top
-	panel.add_theme_constant_override("separation", 10)
-	overlay.add_child(panel)
-	var lbl := Label.new()
-	lbl.text = title_text
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	panel.add_child(lbl)
-	return panel
 
 func _spawn_dummy(delay: float = 0.0) -> void:
 	if _boss_fight_active:

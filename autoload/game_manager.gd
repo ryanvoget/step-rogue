@@ -193,6 +193,31 @@ var step_bank: int:
 # shops that appear every 10 floors (see world.gd's _show_shop). Reset to 0 at run start in
 # world.gd's _ready and on reset() below.
 var coins: int = 0
+var final_boss_beaten: bool = false # run-scoped: true once the final boss (phase 2) is cleared, so
+                                    # the loadout is kept (no hedge-loss) for the rest of the run
+var run_artifacts: Array = []       # artifacts found DURING this run (e.g. the bar slot machine),
+                                    # stacking on top of the equipped one — reset each run (world.gd).
+                                    # Their effects combine via ItemRegistry.artifact_num.
+# Screen-shake "trauma" (0..1): callers (e.g. melee hits) add to it; world.gd's camera turns it into
+# a quick decaying camera jolt (trauma^2 * max offset), then decays it back to 0.
+var screen_shake: float = 0.0
+func add_screen_shake(amount: float) -> void:
+	screen_shake = clampf(screen_shake + amount, 0.0, 1.0)
+
+# Hitstop / freeze-frame: drop Engine.time_scale to `scale` for `duration` (real) seconds on a heavy
+# hit, then restore it. Lives on this autoload (not the player) so the restore always fires even if
+# the player is freed mid-hitstop — otherwise time could get stuck slow. The timer ignores time
+# scale so it fires while (nearly) frozen.
+var _hitstop_active := false
+func hitstop(scale: float, duration: float) -> void:
+	if _hitstop_active:
+		return
+	_hitstop_active = true
+	Engine.time_scale = scale
+	get_tree().create_timer(duration, true, false, true).timeout.connect(func():
+		Engine.time_scale = 1.0
+		_hitstop_active = false
+	)
 
 func add_coins(n: int) -> void:
 	coins += n

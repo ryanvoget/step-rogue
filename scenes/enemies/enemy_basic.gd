@@ -78,6 +78,7 @@ const STUN_FLASH_INTERVAL := 0.05 # flash toggles this often while stunned (e.g.
 const BURN_TICK_INTERVAL := 1.0 # seconds between burn damage ticks (e.g. Flamethrower)
 const BURN_FLASH_INTERVAL := 0.05 # orange flash toggles this often while burning
 const BURN_FLASH_COLOR := Color(1.0, 0.55, 0.1)
+const FREEZE_BODY_COLOR := Color(0.35, 0.65, 1.0) # solid blue tint on a frozen enemy body
 const CONFUSE_FLASH_INTERVAL := 0.05 # white flash toggles this often while confused
 const CONFUSE_FLASH_COLOR := Color(1.0, 1.0, 1.0)
 const THAW_SLOW_MULTIPLIER := 0.5 # movement speed while thawing (50% slower)
@@ -86,7 +87,9 @@ const THAW_SLOW_DURATION := 3.0 # seconds — applies automatically whenever ANY
                                  # Grenade) expires, not just specific items
 const BLIND_FLASH_INTERVAL := 0.05 # yellow flash toggles this often while blinded (Flash Grenade)
 const BLIND_FLASH_COLOR := Color(1.0, 1.0, 0.3)
-const SHOOT_RANGE := 260.0 # SHOOTER kind stops approaching and starts firing inside this range
+const SHOOT_RANGE := 2000.0 # larger than the map, so laser enemies fire from anywhere on it
+const STRAFE_SPEED := 45.0   # ranged enemies drift sideways this fast while firing (half move speed)
+const STRAFE_INTERVAL := 1.2 # ...flipping strafe direction this often (or on hitting a wall)
 const SWING_FLASH_DURATION := 0.18 # seconds the melee swing arc telegraph stays drawn per strike
 const MELEE_BODY_COLOR := Color(0.85, 0.20, 0.20)
 const SHOOTER_BODY_COLOR := Color(0.70, 0.25, 0.85) # purple, so shooters read differently at a glance
@@ -131,6 +134,8 @@ var _bossf_split_timer := BOSSF_SPLIT_INTERVAL       # Final boss phase 2: count
 var _bossf_split_enabled := false                    # phase 2 flag (world.gd calls enable_boss_split)
 var _split_generation := 0                           # how many times this lineage has halved (cap 3)
 var _staff_range := STAFF_RANGE                      # melee reach (Boss1 gets 2.5x — set in configure_type)
+var _strafe_dir := 1.0                               # current sideways drift direction while firing
+var _strafe_timer := 0.0
 var _flame_active := false      # true while Solar is burning the player (drives the cone draw)
 var _flame_angle := 0.0
 
@@ -203,7 +208,7 @@ func configure_type(type_key: String) -> void:
 	elif _special == "boss2":
 		_attack_cd /= 6.0 # Boss2's base fire rate is 6x (ramps to 20x for 2s after each teleport)
 	elif _special == "boss_final":
-		_attack_cd /= 6.0 # Final boss fires at 6x
+		_attack_cd /= 4.0 # Final boss fires at 4x
 	if _special == "boss1":
 		_attack_dmg = 5 # Boss1 swings at base speed but hits for 5
 	_staff_range = STAFF_RANGE * 2.5 if _special == "boss1" else STAFF_RANGE # Boss1 has extra reach
@@ -447,7 +452,7 @@ func _tick_specials(delta: float) -> void:
 					var half: int = int(health / 2)
 					health = half
 					max_health = half
-					_radius *= 0.5 # each halving also shrinks the body by half
+					_radius *= 0.75 # each halving also shrinks the body to 3/4 its size
 					_update_collision_radius()
 					queue_redraw()
 					boss_split.emit(global_position, half, _radius, _split_generation)
@@ -563,13 +568,21 @@ func _tick(delta: float) -> void:
 				look_at(_player.global_position)
 
 		State.ATTACK:
-			velocity = Vector2.ZERO
 			look_at(_player.global_position)
 			if _weapon == Weapon.FLAME:
+				velocity = Vector2.ZERO
 				_flame_attack(delta, dist)
 			elif _weapon == Weapon.STAFF:
+				velocity = Vector2.ZERO
 				_melee_attack(delta, dist)
 			else:
+				# Ranged: strafe sideways a little while firing instead of standing still.
+				_strafe_timer -= delta
+				if _strafe_timer <= 0.0 or is_on_wall():
+					_strafe_timer = STRAFE_INTERVAL
+					_strafe_dir = -_strafe_dir
+				var to_p := _player.global_position - global_position
+				velocity = Vector2(-to_p.y, to_p.x).normalized() * _strafe_dir * STRAFE_SPEED
 				_ranged_attack(delta)
 			# Leave ATTACK once the player is well outside this weapon's engage band.
 			if dist > engage * (2.0 if _weapon == Weapon.STAFF else 1.25):
@@ -706,9 +719,16 @@ func _draw() -> void:
 		col = CONFUSE_FLASH_COLOR
 	if _blind_flash_on:
 		col = BLIND_FLASH_COLOR
-	if _stun_flash_on:
+	# Frozen (Ice Grenade / Freeze Gun): a solid blue-tinted body for the whole freeze, so the effect
+	# is clearly visible instead of only the intermittent stun flash.
+	if _stun_timer > 0.0 and _freeze_pending_thaw:
+		col = col.lerp(FREEZE_BODY_COLOR, 0.7)
+	elif _stun_flash_on:
 		col = _stun_flash_color
 	draw_circle(Vector2.ZERO, _radius, col)
+	# Ice ring around a frozen enemy for extra clarity.
+	if _stun_timer > 0.0 and _freeze_pending_thaw:
+		draw_arc(Vector2.ZERO, _radius + 2.0, 0.0, TAU, 24, FREEZE_BODY_COLOR, 2.0)
 	# Melee swing telegraph: the staff's cone hitbox (filled wedge + outline) in the strike
 	# direction each attack, so what's shown matches the reach that actually connects.
 	if _swing_flash_timer > 0.0:
