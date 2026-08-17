@@ -25,3 +25,9 @@ ios_app/LocalPackages/**/.build/
 # Stray build artifacts
 ios_app/Parsec.pck
 /Debug/
+
+# Game data spreadsheets: the .numbers files are the source of truth and ARE tracked
+# (Asset_List = items, Artifact Data = artifacts, Enemy Data = enemies). Any .xlsx next to
+# them is a throwaway Numbers export used to read the data programmatically — never an input,
+# and stale the moment Numbers is saved again. Don't commit exports.
+*.xlsx
