@@ -39,6 +39,12 @@ var _active_dispenser: Node2D = null
 var _boss_fight_active := false # true once a boss fight is started — stops the dummy respawning
 
 func _ready() -> void:
+	# ui_popup_open lives on a persistent autoload, so a popup that was open when the last run
+	# ended (e.g. hud.gd's game-over overlay) would still be flagged open here and make
+	# mobile_controls swallow every touch — the sandbox looks frozen. Same guard as world.gd.
+	GameManager.ui_popup_open = false
+	GameManager.clear_hitstop() # ...same for a hitstop left mid-flight (time_scale 0.02 = frozen)
+	GameManager.refresh_shirt_effects() # so Red's doubled elemental effects are testable here too
 	GameManager.register_bullets_container(_bullets)
 	GameManager.deploy_equipment_requested.connect(_use_equipment)
 	GameManager.heal_item_requested.connect(_use_heal_item)

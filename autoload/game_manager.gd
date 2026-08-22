@@ -9,6 +9,13 @@ signal sniper_fire_requested(target_pos: Vector2) # emitted by mobile_controls.g
 signal thrown_melee_throw_requested(angle: float) # emitted by mobile_controls.gd when the aim joystick is released past the dead zone, for thrown-melee weapons (e.g. Throwable Beam Sword)
 signal heal_item_requested # emitted by mobile_controls.gd's blue heal button tap
 signal battery_activate_requested # emitted by mobile_controls.gd's battery button tap (READY state only)
+signal dash_requested # emitted by mobile_controls.gd's white dash button tap (Teleportation Bracelet)
+
+# Teleportation Bracelet dash (picked up in the lobby): dash_unlocked gates the dash button;
+# dash_ready/dash_cooldown_frac are published by player.gd for the button's UI (fill/greyed).
+var dash_unlocked: bool = false
+var dash_ready: bool = true
+var dash_cooldown_frac: float = 1.0
 
 var current_floor: int = 1
 
@@ -219,8 +226,28 @@ func hitstop(scale: float, duration: float) -> void:
 		_hitstop_active = false
 	)
 
+# Force time back to normal. Both of these are process-wide state that outlives any scene, so a
+# scene entered mid-hitstop (or after one that somehow never restored) would run at 0.02x and
+# look frozen. Called on sandbox entry; safe to call any time.
+func clear_hitstop() -> void:
+	Engine.time_scale = 1.0
+	_hitstop_active = false
+
+# ── Character (shirt) elemental passive ──────────────────────────────────────────────────────
+# The Red character doubles the MAGNITUDE OF ELEMENTAL EFFECTS rather than raw weapon damage:
+# burn ticks, chain-lightning arcs, and freeze thaw damage all scale by this. 1.0 for everyone
+# else. Read at the point each effect is applied (enemy_basic.apply_burn / its thaw branch,
+# player.gd's _chain_lightning_from, bullet.gd's _chain_from) so it always reflects the current
+# character without needing the weapon to be re-equipped.
+var elemental_effect_mult: float = 1.0
+
+func refresh_shirt_effects() -> void:
+	elemental_effect_mult = 2.0 if SaveManager.shirt_color == "red" else 1.0
+
 func add_coins(n: int) -> void:
 	coins += n
+	if n > 0:
+		stat_gold_earned += n
 
 # ── Run statistics (shown on the game-over → Statistics screen; reset each run in world._ready) ──
 var stat_damage_by_floor: Dictionary = {} # floor number -> damage dealt to enemies that floor
@@ -231,6 +258,9 @@ var stat_shots_fired: int = 0   # player-fired bullets (lasers); see bullet.from
 var stat_shots_hit: int = 0     # of those, how many connected with an enemy
 var stat_melee_attempts: int = 0 # melee swings + thrown-melee throws
 var stat_melee_hits: int = 0     # of those, how many connected
+var stat_damage_taken: int = 0   # total HP the player actually lost this run
+var stat_gold_earned: int = 0    # total gold gained this run (drops, boss payout, loadout bonus)
+var stat_gold_spent: int = 0     # total gold spent this run (shop, bar, slot machine, upgrades)
 
 func reset_run_stats() -> void:
 	stat_damage_by_floor = {}
@@ -241,6 +271,19 @@ func reset_run_stats() -> void:
 	stat_shots_hit = 0
 	stat_melee_attempts = 0
 	stat_melee_hits = 0
+	stat_damage_taken = 0
+	stat_gold_earned = 0
+	stat_gold_spent = 0
+
+func record_damage_taken(amount: int) -> void:
+	if amount > 0:
+		stat_damage_taken += amount
+
+# Spend gold (shop/bar/slot machine/upgrades) — tracks the run's total spend for the stats screen.
+func spend_coins(n: int) -> void:
+	coins -= n
+	if n > 0:
+		stat_gold_spent += n
 
 func record_damage(amount: int) -> void:
 	if amount <= 0:
@@ -267,20 +310,39 @@ func record_melee_hit() -> void:
 	stat_melee_hits += 1
 
 var _bullets_container: Node = null
+const MUZZLE_FLASH_SCENE := preload("res://scenes/fx/muzzle_flash.tscn")
+const LASER_SPEED_MULT := 2.0 # player-side laser travel-speed multiplier (visual only; DPS unchanged)
+const ENEMY_LASER_SPEED_MULT := 1.5 # enemy laser travel-speed multiplier
 
 func register_bullets_container(node: Node) -> void:
 	_bullets_container = node
 
-func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = -1, speed: float = -1.0, freeze_duration: float = -1.0, knockback_force: float = -1.0, wave_max_width: float = -1.0, from_player: bool = false) -> void:
+# Energy colour for a player laser's muzzle flash / impact, by bullet type (freeze = blue, wave =
+# cyan, otherwise the default red-orange bolt).
+func laser_energy_color(freeze_duration: float, wave_max_width: float) -> Color:
+	if freeze_duration > 0.0:
+		return Color(0.45, 0.72, 1.0)
+	if wave_max_width > 0.0:
+		return Color(0.30, 0.90, 0.90)
+	return Color(1.0, 0.40, 0.22)
+
+func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = -1, speed: float = -1.0, freeze_duration: float = -1.0, knockback_force: float = -1.0, wave_max_width: float = -1.0, from_player: bool = false, burn_damage: int = 0, burn_duration: float = 0.0, chain: bool = false) -> void:
 	if _bullets_container == null:
 		return
 	var b = scene.instantiate()
 	b.global_position = pos
 	b.rotation = angle
+	b.burn_damage = burn_damage
+	b.burn_duration = burn_duration
+	b.chain_lightning = chain
 	if damage >= 0:
 		b.damage = damage
 	if speed >= 0.0:
 		b.speed = speed
+	# Player-side lasers travel 2x faster so they read as snappy energy bolts instead of slow blobs.
+	# This changes ONLY travel speed — damage and fire rate are untouched, so weapon DPS is identical.
+	# Enemy bullets go through spawn_enemy_bullet (which never applies this), so they're unaffected.
+	b.speed *= LASER_SPEED_MULT
 	if freeze_duration >= 0.0:
 		b.freeze_duration = freeze_duration
 	if knockback_force >= 0.0:
@@ -293,6 +355,17 @@ func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = 
 		record_shot_fired()
 	_bullets_container.add_child(b)
 	AudioManager.play_laser()
+	# Firing juice (player laser weapons only): a muzzle flash at the barrel + a fire-recoil
+	# micro-shake scaled by shot weight, so heavy guns kick and rapid lasers barely nudge.
+	if from_player:
+		var col := laser_energy_color(b.freeze_duration, b.wave_max_width)
+		var scl: float = clampf(float(b.damage) / 8.0, 0.7, 2.2)
+		var mf: Node2D = MUZZLE_FLASH_SCENE.instantiate()
+		mf.setup(col, scl)
+		mf.global_position = pos
+		mf.rotation = angle
+		_bullets_container.add_child(mf)
+		add_screen_shake(clampf(float(b.damage) / 90.0, 0.02, 0.2))
 
 # Mirrors spawn_bullet but for enemy-fired projectiles (currently sandbox-only — see
 # enemy_basic.gd's SHOOTING sandbox action): targets the player's group and collision layer
@@ -309,6 +382,7 @@ func spawn_enemy_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: 
 	b.global_position = pos
 	b.rotation = angle
 	b.damage = damage
+	b.speed *= ENEMY_LASER_SPEED_MULT # enemy bolts travel a bit faster (see player-side LASER_SPEED_MULT)
 	b.target_group = "player"
 	b.collision_mask = 0 if will_miss else 1
 	b.shooter = shooter
@@ -317,6 +391,7 @@ func spawn_enemy_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: 
 		b.freeze_duration = freeze_duration
 	if wave_max_width > 0.0:
 		b.wave_max_width = wave_max_width
+	b.add_to_group("enemy_bullets") # for the dash's perfect-dodge detection (player.gd)
 	_bullets_container.add_child(b)
 	AudioManager.play_laser()
 

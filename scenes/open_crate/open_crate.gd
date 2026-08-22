@@ -35,6 +35,8 @@ const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"
 var _spinning := false        # true while the reel is scrolling — see _process ticker
 var _spin_last_tick := -1
 var _crate_btns: Array = []
+var _spin_tween: Tween = null # the active reel tween — held to fast-forward it (see _input)
+var _ff_label: Label = null   # transparent ⏩ watermark shown while fast-forwarding
 
 func _ready() -> void:
 	SceneManager.add_glass_background(self)
@@ -139,13 +141,43 @@ func _animate_spin(winner: Dictionary) -> void:
 	_spin_last_tick = -1
 	_spinning = true
 
-	var tw := create_tween()
-	tw.tween_property(_spin_track, "position:x", end_x, 5.0) \
+	_spin_tween = create_tween()
+	_spin_tween.tween_property(_spin_track, "position:x", end_x, 5.0) \
 	  .set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_callback(func():
+	_spin_tween.tween_callback(func():
 		_spinning = false
+		_spin_tween = null
+		_show_ff_watermark(false)
 		_show_result(winner)
 	)
+
+# Hold the screen while the reel spins to fast-forward it at 2x, with a transparent ⏩ watermark.
+func _input(event: InputEvent) -> void:
+	if not _spinning or _spin_tween == null or not _spin_tween.is_valid():
+		return
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_spin_tween.set_speed_scale(2.0)
+			_show_ff_watermark(true)
+		else:
+			_spin_tween.set_speed_scale(1.0)
+			_show_ff_watermark(false)
+
+func _show_ff_watermark(show: bool) -> void:
+	if show:
+		if _ff_label == null or not is_instance_valid(_ff_label):
+			_ff_label = Label.new()
+			_ff_label.text = "⏩"
+			_ff_label.add_theme_font_size_override("font_size", 120)
+			_ff_label.modulate = Color(1, 1, 1, 0.22) # watermark — barely there
+			_ff_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+			_ff_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_ff_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			_ff_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			add_child(_ff_label)
+	elif _ff_label != null and is_instance_valid(_ff_label):
+		_ff_label.queue_free()
+		_ff_label = null
 
 # Ticker: a tick each time a new card scrolls under the center, slowing with the cubic ease-out.
 func _process(_delta: float) -> void:

@@ -38,7 +38,8 @@ var _hatch_tweens := {}           # layer name -> active volume-fade Tween
 var _hatch_on := false            # the hatch stack is the current music (a run, non-boss)
 var _hatch_floor := 0
 var _hatch_low_hp := false
-const HATCH_FADE := 1.4           # seconds to fade a layer in/out so it never snaps on abruptly
+const HATCH_FADE := 1.4           # seconds to fade a layer OUT so it never snaps off abruptly
+const HATCH_FADE_IN := 3.5        # slower fade IN (2.5x) so new layers ease in smoothly, not suddenly
 
 # Procedurally synthesized SFX (no audio files needed): crate-open ticks, laser shots (any
 # bullet — see GameManager.spawn_bullet/spawn_enemy_bullet), and melee swings. A round-robin
@@ -46,6 +47,7 @@ const HATCH_FADE := 1.4           # seconds to fade a layer in/out so it never s
 # cutting each other. SFX volume is separate from music (SaveManager.sfx_volume).
 var _tick_stream: AudioStreamWAV
 var _laser_stream: AudioStreamWAV
+var _laser_impact_stream: AudioStreamWAV
 var _swing_stream: AudioStreamWAV
 var _impact_stream: AudioStreamWAV
 var _sfx_players: Array[AudioStreamPlayer] = []
@@ -55,6 +57,8 @@ var _sfx_idx := 0
 # skip a laser if one already played within this window.
 const LASER_MIN_INTERVAL := 0.09
 var _last_laser_ms := -10000
+const LASER_IMPACT_MIN_INTERVAL := 0.05
+var _last_laser_impact_ms := -10000
 
 func _ready() -> void:
 	_player = AudioStreamPlayer.new()
@@ -78,6 +82,7 @@ func _ready() -> void:
 
 	_tick_stream = _build_tick()
 	_laser_stream = _build_laser()
+	_laser_impact_stream = _build_laser_impact()
 	_swing_stream = _build_swing()
 	_impact_stream = _build_impact()
 	for _i in 12:
@@ -186,7 +191,8 @@ func _set_hatch_layer(name: String, on: bool) -> void:
 	if _hatch_tweens.has(name) and _hatch_tweens[name] != null and _hatch_tweens[name].is_valid():
 		_hatch_tweens[name].kill()
 	var tw := create_tween()
-	tw.tween_method(func(v: float): p.volume_db = _to_db(v), from_lin, to_lin, HATCH_FADE)
+	var dur: float = HATCH_FADE_IN if on else HATCH_FADE # ease new layers in slowly; fade out quicker
+	tw.tween_method(func(v: float): p.volume_db = _to_db(v), from_lin, to_lin, dur)
 	_hatch_tweens[name] = tw
 
 # Drives the phase-1 loop + fades. Phase 2 and background need no per-frame work (the finished→play
@@ -231,6 +237,13 @@ func play_laser() -> void:
 	_last_laser_ms = now
 	_play_sfx(_laser_stream)
 
+func play_laser_impact() -> void:
+	var now := Time.get_ticks_msec()
+	if now - _last_laser_impact_ms < int(LASER_IMPACT_MIN_INTERVAL * 1000.0):
+		return
+	_last_laser_impact_ms = now
+	_play_sfx(_laser_impact_stream)
+
 func play_swing() -> void:
 	_play_sfx(_swing_stream)
 
@@ -263,24 +276,50 @@ func _build_tick() -> AudioStreamWAV:
 		s[i] = (tone * 0.7 + click) * env * 0.5 # slightly louder (was 0.38)
 	return _make_wav(s, rate)
 
-# Laser "pew": a downward pitch sweep (phase-accumulated so the sweep is clean) with a slight
-# square-wave buzz and a fast decay — the shot for any bullet-firing gun.
+# Layered laser shot — not a generic "pew". Three stacked voices give it weight:
+#   1. a sharp high-frequency noise CRACK (the snap) with near-instant decay,
+#   2. a phase-accumulated downward pitch SWEEP with a square-wave buzz (the zap body),
+#   3. a deep sub-bass THUD (~150→60 Hz) for kinetic punch.
 func _build_laser() -> AudioStreamWAV:
 	var rate := 44100
-	var dur := 0.12
+	var dur := 0.14
+	var n := int(rate * dur)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var phase := 0.0
+	var sub_phase := 0.0
+	for i in n:
+		var t := float(i) / rate
+		var prog := t / dur
+		var crack := (randf() * 2.0 - 1.0) * exp(-t * 220.0) * 0.6 # sharp snap transient
+		var freq := lerpf(1700.0, 380.0, prog)
+		phase += TAU * freq / rate
+		var tone := sin(phase) * 0.55
+		var buzz := signf(sin(phase)) * 0.14
+		var subf := lerpf(150.0, 60.0, clampf(prog * 2.0, 0.0, 1.0)) # deep sub thud
+		sub_phase += TAU * subf / rate
+		var sub := sin(sub_phase) * exp(-t * 26.0) * 0.8
+		var env := exp(-t * 26.0)
+		s[i] = clampf(crack + (tone + buzz) * env + sub, -1.0, 1.0) * 0.5
+	return _make_wav(s, rate)
+
+# Laser impact "zap-crack": a sharp noise crack + a fast descending zap + a tiny sub punch — the
+# energy landing on a target. Shorter and brighter than the melee thunk.
+func _build_laser_impact() -> AudioStreamWAV:
+	var rate := 44100
+	var dur := 0.10
 	var n := int(rate * dur)
 	var s := PackedFloat32Array()
 	s.resize(n)
 	var phase := 0.0
 	for i in n:
 		var t := float(i) / rate
-		var prog := t / dur
-		var freq := lerpf(1400.0, 340.0, prog)
+		var crack := (randf() * 2.0 - 1.0) * exp(-t * 300.0) * 0.7
+		var freq := lerpf(900.0, 200.0, t / dur)
 		phase += TAU * freq / rate
-		var tone := sin(phase)
-		var buzz := signf(sin(phase)) * 0.22
-		var env := exp(-t * 24.0)
-		s[i] = (tone * 0.7 + buzz) * env * 0.5
+		var zap := sin(phase) * exp(-t * 40.0) * 0.4
+		var sub := sin(TAU * 80.0 * t) * exp(-t * 45.0) * 0.5
+		s[i] = clampf(crack + zap + sub, -1.0, 1.0) * 0.5
 	return _make_wav(s, rate)
 
 # Melee swing "whoosh": band-passed noise whose cutoff swells as the swing passes, under a

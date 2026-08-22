@@ -65,6 +65,13 @@ size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 17
 text = "👾  Enemy Info"
 
+[node name="BtnStatistics" type="Button" parent="VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 56)
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "📊  Statistics"
+
 [node name="BottomExpand" type="Control" parent="VBox"]
 layout_mode = 2
 size_flags_vertical = 3

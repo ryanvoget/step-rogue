@@ -21,7 +21,10 @@ func equipped_points() -> int:
 func over_equipment_budget() -> bool:
 	return equipped_points() > EQUIPMENT_POINT_BUDGET
 
-# damage/heal/block are null when not applicable to that item (sourced from Asset_List.xlsx).
+# damage/heal/block are null when not applicable to that item. Asset_List.numbers is the
+# single source of truth for the item roster and for name/rarity/type/damage/heal/block —
+# the Asset_List*.xlsx files are throwaway exports of it, never edit those. Everything else
+# below (fire_rate, ranges, the behavior flags) is gameplay tuning that lives only here.
 # fire_rate (seconds between attacks) is only set for weapons tuned for actual gameplay so far;
 # null means "not wired up yet, falls back to default weapon behavior". Used for both ranged
 # fire rate and melee swing rate.
@@ -262,24 +265,27 @@ func over_equipment_budget() -> bool:
 const ITEMS := [
 	{ "name": "Staff",                             "rarity": "common",    "file": "Staff_Asset.png",                            "type": "weapon",    "damage": 3,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
 	{ "name": "Laser Blaster",                     "rarity": "common",    "file": "Laser_Blaster_Asset.png",                    "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": 0.2 , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
-	{ "name": "Punching Robot Gloves",             "rarity": "common",    "file": "Punching_Robot_Gloves_Asset.png",            "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": 0.40, "barrel_offset": null, "melee_range": 96.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_hits": 2, "melee_joystick": true, "no_move_lock": true },
+	# Punching Robot Gloves removed (was a common 2dmg x2-hit melee weapon). It was the only
+	# user of no_move_lock, so that flag is now read but never set (player.gd handles it fine).
 	{ "name": "Sticky Grenade",                    "rarity": "common",    "file": "Sticky_Grenade_Asset.png",                   "type": "equipment", "damage": 5,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 375.0, "aoe_radius": 50.0, "explode_delay": 0.25, "sticky": true, "sticky_damage": 30, "sticky_delay": 1.0 },
 	{ "name": "Smoke Grenade",                     "rarity": "common",    "file": "Smoke_Grenade_Asset.png",                    "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "confuse_duration": 2.0 },
 	{ "name": "Blast Grenade",                     "rarity": "common",    "file": "Blast_Grenade_Asset.png",                    "type": "equipment", "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "explode_delay": 0.25, "aoe_radius": 100.0 },
 	{ "name": "Small Heal Vial",                   "rarity": "common",    "file": "Small_Heal_Vial_Asset.png",                  "type": "defensive", "damage": null, "heal": 10,  "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_instant": 10 },
-	{ "name": "Speed Boost Battery",               "rarity": "common",    "file": "Speed_Boost_Battery_Asset.png",              "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "battery": true, "speed_boost_multiplier": 1.5, "battery_active_duration": 10.0, "battery_recharge_duration": 10.0 },
-	{ "name": "Electric Baton",                    "rarity": "common",    "file": "Electric_Baton_Asset.png",                   "type": "weapon",    "damage": 4,   "heal": null, "block": null, "fire_rate": 0.67, "barrel_offset": null, "melee_range": 128.0, "knockback": null, "placeable": false, "bullet_speed": null, "stun": 0.1, "melee_joystick": true, "chain_lightning": true },
+	# Speed Boost Battery removed (was common battery equipment) — see the Bigger Speed Boost
+	# Battery note below for what this means for the `battery` mechanic as a whole.
+	{ "name": "Electric Baton",                    "rarity": "common",    "file": "Electric_Baton_Asset.png",                   "type": "weapon",    "damage": 4,   "heal": null, "block": null, "fire_rate": 0.67, "barrel_offset": null, "melee_range": 128.0, "knockback": null, "placeable": false, "bullet_speed": null, "stun": 0.1, "melee_joystick": true, "chain_lightning": true, "element": "electric" },
 	{ "name": "Detonator Mine",                    "rarity": "common",    "file": "Detonator_Mine_Asset.png",                   "type": "equipment", "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "mine": true, "aoe_radius": 100.0 },
 	{ "name": "Metallic Whip",                     "rarity": "uncommon",  "file": "Metallic_Whip_Asset.png",                    "type": "weapon",    "damage": 5,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 256.0, "knockback": null, "placeable": false, "bullet_speed": null, "melee_arc_degrees": 33.3333, "stun": 0.2, "melee_joystick": true },
-	{ "name": "Daggers",                           "rarity": "common",    "file": "Daggers_Asset.png",                          "type": "weapon",    "damage": 1,   "heal": null, "block": null, "fire_rate": 0.25, "barrel_offset": null, "melee_range": 96.0, "knockback": null, "placeable": false, "bullet_speed": null, "melee_hits": 2, "melee_joystick": true },
+	{ "name": "Fire Daggers",                      "rarity": "common",    "file": "Fire_Daggers_Asset.png",                     "type": "weapon",    "damage": 1,   "heal": null, "block": null, "fire_rate": 0.25, "barrel_offset": null, "melee_range": 96.0, "knockback": null, "placeable": false, "bullet_speed": null, "melee_hits": 2, "melee_joystick": true, "element": "fire", "burn_damage": 2, "burn_duration": 3.0 },
 	{ "name": "Passive Health Regen Vial",         "rarity": "common",    "file": "Passive_Health_Regen_Vial_Asset.png",        "type": "defensive", "damage": null, "heal": 1,   "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_regen_amount": 1, "heal_regen_duration": 10.0 },
 	{ "name": "Force Push Bracelet",               "rarity": "common",    "file": "Force_Push_Bracelet_Asset.png",              "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "force_push": true, "force_push_range": 192.0, "force_push_arc_degrees": 100.0, "force_push_mana_max": 100.0, "force_push_mana_drain_rate": 10.0 },
 	{ "name": "Light Shield Barrier",              "rarity": "common",    "file": "Light_Shield_Barrier_Asset.png",             "type": "defensive", "damage": null, "heal": null, "block": 10 , "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "shield": true },
-	{ "name": "Warhammer",                         "rarity": "common",    "file": "Warhammer_Asset.png",                        "type": "weapon",    "damage": 5,   "heal": null, "block": null, "fire_rate": 1.0 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
+	{ "name": "Warhammer",                         "rarity": "common",    "file": "Warhammer_Asset.png",                        "type": "weapon",    "damage": 8,   "heal": null, "block": null, "fire_rate": 1.0 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
 	{ "name": "Molitov Grenade",                   "rarity": "common",    "file": "Molitov_Grenade_Asset.png",                  "type": "equipment", "damage": 10,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "linger_duration": 3.0, "linger_burn_damage": 5, "linger_burn_duration": 3.0 },
 	{ "name": "Magnetic Grenade",                  "rarity": "common",    "file": "Magnetic_Grenade_Asset.png",                 "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "gravity_duration": 2.0 },
 	{ "name": "Deployable Barrier Wall",           "rarity": "common",    "file": "Deployable_Barrier_Wall_Asset.png",          "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "barrier": true, "barrier_max_length": 250.0, "barrier_thickness": 12.0 },
-	{ "name": "Grapple Hook",                      "rarity": "uncommon",  "file": "Grapple_Hook_Asset.png",                     "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "grapple": true },
+	# Grapple Hook removed (was uncommon equipment). It was the only user of the `grapple` field,
+	# so player.gd's start_grapple_dash / world.gd's _use_grapple are now unreachable but intact.
 	{ "name": "Beam Sword",                        "rarity": "uncommon",  "file": "Beam_Sword_Asset.png",                       "type": "weapon",    "damage": 10,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
 	{ "name": "Mesh Grenade",                      "rarity": "uncommon",  "file": "Mesh_Grenade_Asset.png",                     "type": "equipment", "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "mesh_count": 8, "mesh_radius_ratio": 0.25, "mesh_damage": 6 },
 	{ "name": "Flash Grenade",                     "rarity": "uncommon",  "file": "Flash_Grenade_Asset.png",                    "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "flash_duration": 4.0 },
@@ -289,25 +295,39 @@ const ITEMS := [
 	{ "name": "Ice Grenade",                       "rarity": "uncommon",  "file": "Ice_Grenade_Asset.png",                      "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "freeze_duration": 4.0 },
 	{ "name": "Distraction Grenade",               "rarity": "uncommon",  "file": "Distraction_Grenade_Asset.png",              "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "throw_distance": 250.0, "aoe_radius": 100.0, "explode_delay": 0.25, "distract_duration": 4.0 },
 	{ "name": "Turret",                            "rarity": "uncommon",  "file": "Turret_Asset.png",                           "type": "equipment", "damage": 2,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": true, "bullet_speed": 1040.0 },
-	{ "name": "Wave Ray Gun",                      "rarity": "uncommon",  "file": "Wave_Ray_Gun_Asset.png",                     "type": "weapon",    "damage": 7,   "heal": null, "block": null, "fire_rate": 0.75, "barrel_offset": null, "melee_range": null, "knockback": 80.0, "placeable": false, "bullet_speed": null, "wave_max_width": 146.84 },
-	{ "name": "Freeze Gun",                        "rarity": "uncommon",  "file": "Freeze_Gun_Asset.png",                       "type": "weapon",    "damage": 7,   "heal": null, "block": null, "fire_rate": 0.75, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "freeze_duration": 1.5 },
-	{ "name": "Flamethrower",                      "rarity": "uncommon",  "file": "Flamethrower_Asset.png",                     "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "beam_range": 256.0, "beam_arc_degrees": 16.6667, "burn_damage": 1, "burn_duration": 3.0, "beam_tick_interval": 0.75 },
+	{ "name": "Wave Ray Gun",                      "rarity": "uncommon",  "file": "Wave_Ray_Gun_Asset.png",                     "type": "weapon",    "damage": 7,   "heal": null, "block": null, "fire_rate": 0.75, "barrel_offset": null, "melee_range": null, "knockback": 80.0, "placeable": false, "bullet_speed": null, "wave_max_width": 146.84, "element": "void" },
+	{ "name": "Freeze Gun",                        "rarity": "rare",      "file": "Freeze_Gun_Asset.png",                       "type": "weapon",    "damage": 7,   "heal": null, "block": null, "fire_rate": 0.75, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "freeze_duration": 1.5, "element": "ice" },
+	{ "name": "Ice Staff",                         "rarity": "rare",      "file": "Ice_Staff_Asset.png",                        "type": "weapon",    "damage": 8,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_joystick": true, "element": "ice", "melee_freeze_duration": 1.0 },
+	{ "name": "Fire Blaster",                      "rarity": "rare",      "file": "Fire_Blaster_Asset.png",                     "type": "weapon",    "damage": 6,   "heal": null, "block": null, "fire_rate": 0.75, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "element": "fire", "burn_damage": 3, "burn_duration": 3.0 },
+	{ "name": "Electro Blaster",                   "rarity": "rare",      "file": "Electro_Blaster_Asset.png",                  "type": "weapon",    "damage": 5,   "heal": null, "block": null, "fire_rate": 0.75, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "element": "electric", "chain_lightning": true },
+	# Flamethrower removed for now (was uncommon beam weapon).
 	{ "name": "Heal Dispenser Farm",                "rarity": "uncommon",  "file": "Heal_Dispenser_Farm_Asset.png",              "type": "defensive", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_dispenser": true, "dispenser_interval": 5.0, "dispenser_duration": 20.0, "dispenser_heal_amount": 5 },
-	{ "name": "Hand Cannon Gun",                   "rarity": "uncommon",  "file": "Hand_Cannon_Gun_Asset.png",                  "type": "weapon",    "damage": 12,  "heal": null, "block": null, "fire_rate": 1.5 , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
-	{ "name": "Bigger Speed Boost Battery",        "rarity": "uncommon",  "file": "Bigger_Speed_Boost_Battery_Asset.png",       "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "battery": true, "speed_boost_multiplier": 1.75, "battery_active_duration": 15.0, "battery_recharge_duration": 10.0 },
+	# Hand Cannon fire_rate 1.5 -> 1.25: fire_rate is the INTERVAL between shots, so +20% rate of
+	# fire is interval / 1.2 (0.667 -> 0.8 shots/sec), not interval * 0.8.
+	{ "name": "Hand Cannon Gun",                   "rarity": "uncommon",  "file": "Hand_Cannon_Gun_Asset.png",                  "type": "weapon",    "damage": 12,  "heal": null, "block": null, "fire_rate": 1.25, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
+	# Bigger Speed Boost Battery removed (was uncommon battery equipment). With both batteries
+	# gone nothing sets `battery` any more, so the whole tap-to-activate / deplete / recharge
+	# path (mobile_controls' _draw_battery_bar, player.gd's activate_battery, GameManager's
+	# battery state) is unreachable but left intact for a future battery item.
 	{ "name": "Heavy Shield Barrier",              "rarity": "rare",      "file": "Heavy_Shield_Barrier_Asset.png",             "type": "defensive", "damage": null, "heal": null, "block": 50 , "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "shield": true },
 	{ "name": "Large Warhammer",                   "rarity": "uncommon",  "file": "Large_Warhammer_Asset.png",                  "type": "weapon",    "damage": 8,   "heal": null, "block": null, "fire_rate": 1.0 , "barrel_offset": null, "melee_range": 150.0, "knockback": 270.0, "placeable": false, "bullet_speed": null, "melee_joystick": true },
-	{ "name": "Throwable Beam Sword",              "rarity": "rare",      "file": "Throwable_Beam_Sword_Asset.png",             "type": "weapon",    "damage": 10,   "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": 520.0, "thrown_melee": true, "thrown_radius": 100.0 },
+	# Throwable Beam Sword removed (was a rare 10dmg weapon). It was the only user of
+	# thrown_melee, so scenes/thrown_weapon and player.gd's throw path are now unused but intact.
 	{ "name": "Hoverboard",                        "rarity": "rare",      "file": "Hoverboard_Asset.png",                       "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "hoverboard": true, "hoverboard_speed_multiplier": 2.0 },
 	{ "name": "Assault Rifle Blaster",             "rarity": "rare",      "file": "Assault_Rifle_Blaster_Asset.png",            "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": 0.078125, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null },
-	{ "name": "Sniper Rifle Blaster",              "rarity": "rare",      "file": "Sniper_Rifle_Blaster_Asset.png",             "type": "weapon",    "damage": 20,  "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": 9800.0, "sniper_charge_time": 2.0 },
+	# Sniper Rifle Blaster removed (was a rare 20dmg charge weapon). It was the only user of
+	# sniper_charge_time, so the charge-bar control and player.gd's sniper path are now unused.
 	{ "name": "Large Passive Health Regen Vial",   "rarity": "rare",      "file": "Large_Passive_Health_Regen_Vial_Asset.png",  "type": "defensive", "damage": null, "heal": 2,   "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_regen_amount": 2, "heal_regen_duration": 20.0 },
 	{ "name": "Temporary Invincible Battery",      "rarity": "rare",      "file": "Temporary_Invincible_Battery_Asset.png",     "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "invincible": true, "invincible_mana_max": 100.0, "invincible_mana_drain_rate": 10.0 },
-	{ "name": "Teleportation Bracelet",            "rarity": "uncommon",  "file": "Teleportation_Bracelet_Asset.png",           "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "throwable": true, "aim_preview": true, "scaleable_throw": true, "teleport": true, "throw_distance": 1200.0 },
+	# Teleportation Bracelet is deliberately NOT an equippable item: the name now belongs to the
+	# lobby walk-over dash pickup (scenes/dash_pickup). The `teleport` equipment plumbing below
+	# and in world.gd/sandbox.gd/player.gd is left intact for any future item, but nothing sets
+	# it. Asset_List.numbers still lists a "teleportation braclet" row — that row is stale.
 	{ "name": "Advanced Turret",                   "rarity": "rare",      "file": "Advanced_Turret_Asset.png",                  "type": "equipment", "damage": 4,   "heal": null, "block": null, "fire_rate": 0.35, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": true, "bullet_speed": 1040.0 },
 	{ "name": "Sidekick Robot",                    "rarity": "epic",      "file": "Sidekick_Robot_Asset.png",                   "type": "equipment", "damage": 2,   "heal": null, "block": null, "fire_rate": 0.175, "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": 1040.0, "sidekick": true },
 	{ "name": "Double Beam Swords",                "rarity": "epic",      "file": "Double_Beam_Swords_Asset.png",               "type": "weapon",    "damage": 7,   "heal": null, "block": null, "fire_rate": 0.5 , "barrel_offset": null, "melee_range": 128.0, "knockback": 180.0, "placeable": false, "bullet_speed": null, "melee_hits": 2, "melee_joystick": true },
-	{ "name": "Void Grenade Launcher",             "rarity": "epic",      "file": "Void_Grenade_Launcher_Asset.png",            "type": "weapon",    "damage": 2,   "heal": null, "block": null, "fire_rate": 0.8 , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "launcher": true, "throw_distance": 100.0, "aoe_radius": 100.0, "explode_delay": 0.25, "gravity_duration": 2.0, "gravity_tick_interval": 0.25 },
+	# Void Grenade Launcher removed (was the epic gravity-well weapon). It was the only user of
+	# `launcher`, so grenade.gd's gravity-well path is now only reached by Magnetic Grenade.
 	{ "name": "Reflect Shield",                    "rarity": "epic",      "file": "Reflect_Shield_Asset.png",                   "type": "defensive", "damage": null, "heal": null, "block": 50 , "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "shield": true, "shield_reflect": true },
 	{ "name": "Stim Shot",                         "rarity": "epic",      "file": "Stim_Shot_Asset.png",                        "type": "defensive", "damage": null, "heal": 100, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "heal_item": true, "heal_full": true, "speed_boost_multiplier": 1.5, "speed_boost_duration": 10.0 },
 	{ "name": "Dennis",                            "rarity": "legendary", "file": "Dennis_Asset.png",                           "type": "equipment", "damage": null, "heal": null, "block": null, "fire_rate": null , "barrel_offset": null, "melee_range": null, "knockback": null, "placeable": false, "bullet_speed": null, "summon": true, "summon_label": "SUMMON DENNIS" },
@@ -366,12 +386,21 @@ func equip_on_player(player: Node, item: Dictionary) -> void:
 		player.set_melee_stats(item["damage"], item["fire_rate"], item["melee_range"], knockback, hits, arc, stun, use_joystick)
 		player.set_chain_lightning(item.get("chain_lightning", false)) # Electric Baton arcs to a nearby enemy
 		player.set_melee_no_lock(item.get("no_move_lock", false)) # Punching Gloves: keep moving while swinging
+		# Elemental melee effects: Fire Daggers burn, Ice Staff freeze.
+		var m_burn_dmg: int = item.get("burn_damage") if item.get("burn_damage") != null else 0
+		var m_burn_dur: float = item.get("burn_duration") if item.get("burn_duration") != null else 0.0
+		var m_freeze: float = item.get("melee_freeze_duration") if item.get("melee_freeze_duration") != null else 0.0
+		player.set_melee_effects(m_burn_dmg, m_burn_dur, m_freeze)
 	else:
 		var offset: float = item["barrel_offset"] if item.get("barrel_offset") != null else 0.0
 		var freeze: float = item["freeze_duration"] if item.get("freeze_duration") != null else 0.0
 		var ranged_knockback: float = item["knockback"] if item.get("knockback") != null else 0.0
 		var wave_width: float = item["wave_max_width"] if item.get("wave_max_width") != null else 0.0
 		player.set_ranged_stats(item["damage"], item["fire_rate"], offset, freeze, ranged_knockback, wave_width)
+		# Elemental ranged effects: Fire Blaster burn, Electro Blaster chain lightning.
+		var r_burn_dmg: int = item.get("burn_damage") if item.get("burn_damage") != null else 0
+		var r_burn_dur: float = item.get("burn_duration") if item.get("burn_duration") != null else 0.0
+		player.set_ranged_effects(r_burn_dmg, r_burn_dur, item.get("chain_lightning", false))
 
 # Base crate drop weights (percent). Same odds every crate uses.
 const RARITY_WEIGHTS := {"legendary": 1.0, "epic": 4.0, "rare": 10.0, "uncommon": 30.0, "common": 55.0}
@@ -477,16 +506,38 @@ const ARTIFACTS := [
 	{ "name": "Regen+",        "rarity": "uncommon",  "type": "artifact", "file": "Artifact_Regen_Asset.png",      "effect": "Health regenerates at 1 HP/sec while enemies are engaged with the player", "regen_per_sec": 1.0 },
 	{ "name": "Rate of Fire+", "rarity": "rare",      "type": "artifact", "file": "Artifact_RateOfFire_Asset.png", "effect": "Rate of fire of weapon is 1.5x",                                           "fire_rate_mult": 1.5 },
 	{ "name": "Invincible+",   "rarity": "epic",      "type": "artifact", "file": "Artifact_Invincible_Asset.png", "effect": "Every new room, invincible for the first 8 seconds",                       "room_invincible_seconds": 8.0 },
-	{ "name": "Shop+",         "rarity": "legendary", "type": "artifact", "file": "Artifact_Shop_Asset.png",       "effect": "Shop costs are halved for everything",                                     "shop_mult": 0.5 },
-	{ "name": "Lifesteal+",    "rarity": "epic",      "type": "artifact", "file": "Artifact_Lifesteal_Asset.png",  "effect": "Melee attacks that hit an enemy heal 1 HP",                                "melee_lifesteal": 1 },
+	{ "name": "Lifesteal+",    "rarity": "rare",      "type": "artifact", "file": "Artifact_Lifesteal_Asset.png",  "effect": "Melee attacks that hit an enemy heal 1 HP",                                "melee_lifesteal": 1 },
 	{ "name": "Knockback+",    "rarity": "common",    "type": "artifact", "file": "Artifact_Knockback_Asset.png",  "effect": "All melee attacks add 50px of knockback to the enemy",                     "melee_knockback_add": 50.0 },
+	{ "name": "Perfect Dash+", "rarity": "rare",      "type": "artifact", "file": "Artifact_PerfectDash_Asset.png","effect": "Every perfect dash replenishes 5 HP",                                      "perfect_dash_heal": 5 },
+	# Electric+ used to be a boss relic; it's now a regular uncommon slot-machine artifact.
+	{ "name": "Electric+",     "rarity": "uncommon",  "type": "artifact", "file": "Artifact_Electric_Asset.png",   "effect": "Boosts the range of the electric (chain lightning) effect by 2x",           "electric_range_mult": 2.0 },
+	{ "name": "Ice+",          "rarity": "uncommon",  "type": "artifact", "file": "Artifact_Ice_Asset.png",        "effect": "Frozen enemies take 10 damage the moment they thaw",                       "ice_thaw_damage": 10 },
+	{ "name": "Fire+",         "rarity": "common",    "type": "artifact", "file": "Artifact_Fire_Asset.png",       "effect": "Burn does 2 more damage per second",                                       "burn_bonus_dmg": 2 },
+	{ "name": "Elemental+",    "rarity": "common",    "type": "artifact", "file": "Artifact_Elemental_Asset.png",  "effect": "All elemental weapon damage is 1.1x stronger",                             "elemental_dmg_mult": 1.1 },
+	# ── Boss relics (boss_relic: true) — NOT in the slot machine; offered as a 2-choice on boss kill.
+	{ "name": "Common+",       "rarity": "legendary", "type": "artifact", "file": "Artifact_Common_Asset.png",     "effect": "Common-rarity weapons do 1.5x damage",                                     "common_dmg_mult": 1.5, "boss_relic": true },
+	{ "name": "Melee Fire+",   "rarity": "legendary", "type": "artifact", "file": "Artifact_MeleeFire_Asset.png",  "effect": "Melee hits add a burn: 3 HP/sec for 3 seconds",                            "melee_burn_damage": 3, "melee_burn_duration": 3.0, "boss_relic": true },
+	{ "name": "Laser Homing+", "rarity": "legendary", "type": "artifact", "file": "Artifact_LaserHoming_Asset.png","effect": "Your lasers home toward enemies within 100px",                             "laser_homing_radius": 100.0, "boss_relic": true },
+	{ "name": "Shop+",         "rarity": "legendary", "type": "artifact", "file": "Artifact_Shop_Asset.png",       "effect": "Shop costs are halved for everything",                                     "shop_mult": 0.5, "boss_relic": true },
 ]
 
+# Slot-machine artifacts exclude boss relics (those only drop from bosses — see boss_relics).
 func artifacts_of_rarity(rarity: String) -> Array:
-	return ARTIFACTS.filter(func(a): return a["rarity"] == rarity)
+	return ARTIFACTS.filter(func(a): return a["rarity"] == rarity and not a.get("boss_relic", false))
 
 func random_artifact() -> Dictionary:
-	return ARTIFACTS[randi() % ARTIFACTS.size()]
+	var pool := ARTIFACTS.filter(func(a): return not a.get("boss_relic", false))
+	return pool[randi() % pool.size()]
+
+# The boss-relic artifacts (offered as a 2-choice when a boss is defeated).
+func boss_relics() -> Array:
+	return ARTIFACTS.filter(func(a): return a.get("boss_relic", false))
+
+# Two DISTINCT random boss relics for the post-boss choice.
+func roll_two_boss_relics() -> Array:
+	var pool := boss_relics().duplicate()
+	pool.shuffle()
+	return pool.slice(0, mini(2, pool.size()))
 
 func get_artifact_by_name(artifact_name: String) -> Dictionary:
 	for a in ARTIFACTS:
@@ -515,7 +566,7 @@ func roll_artifact() -> Dictionary:
 
 # Multiplier-style effect fields stack MULTIPLICATIVELY (two ×1.2 damage artifacts = ×1.44);
 # every other field stacks ADDITIVELY (two +50 HP = +100).
-const ARTIFACT_MULT_KEYS := ["dmg_mult", "shield_mult", "fire_rate_mult", "shop_mult"]
+const ARTIFACT_MULT_KEYS := ["dmg_mult", "shield_mult", "fire_rate_mult", "shop_mult", "common_dmg_mult", "electric_range_mult", "elemental_dmg_mult"]
 
 # All artifacts currently affecting the run — capped at MAX_ARTIFACTS (world.gd seeds this with the
 # character-screen artifact at run start, then the bar slot machine adds/replaces up to the cap).
