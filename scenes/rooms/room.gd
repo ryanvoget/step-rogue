@@ -11,6 +11,8 @@ const COMBAT_W := 1040.0
 const COMBAT_H := 480.0
 const BAR_W := 2080.0 # 2x the hallway width; scrolls horizontally
 const BAR_H := 480.0
+const LOBBY_W := 2080.0 # starting room: 2x wide, 3x tall — scrolls both axes, dark themed
+const LOBBY_H := 1440.0
 
 var _kind := "combat"
 var _room_w := COMBAT_W
@@ -48,6 +50,7 @@ var enemy_spawn_positions: Array
 var door_sides: Array = []  # sides with visible doors — set by world.gd via set_doors
 var entry_side: int = -1    # which of those the player entered through (drawn blue once unlocked)
 var doors_locked: bool = true
+var challenge_side: int = -1 # an exit that leads to a challenge room — drawn as a flashing red door
 
 func _ready() -> void:
 	configure("combat")
@@ -60,17 +63,23 @@ func configure(kind: String) -> void:
 		_room_w = BAR_W
 		_room_h = BAR_H
 		_play = Rect2(90.0, 150.0, BAR_W - 180.0, 210.0) # wide walkable band with wall margins
+	elif kind == "start":
+		# The starting lobby: a big, dark, scrolling room with a single door at the top.
+		_room_w = LOBBY_W
+		_room_h = LOBBY_H
+		_play = Rect2(90.0, 90.0, LOBBY_W - 180.0, LOBBY_H - 180.0)
 	else:
 		_room_w = COMBAT_W
 		_room_h = COMBAT_H
 		_play = Rect2(120.0, 102.0, 800.0, 276.0)
 	_setup_map_sprite()
-	_map_sprite.visible = (kind != "bar") # bar uses the drawn placeholder instead of the art
+	_map_sprite.visible = (kind != "bar" and kind != "start") # combat/shop/boss use hallway art; bar/lobby are drawn
 	GameManager.room_w = _room_w
 	GameManager.room_h = _room_h
 	GameManager.play_rect = _play
 	_build_walls()
-	player_spawn_pos = _play.get_center()
+	# Lobby: spawn near the bottom so the player walks up toward the single top door.
+	player_spawn_pos = Vector2(_play.get_center().x, _play.end.y - 140.0) if kind == "start" else _play.get_center()
 	var cy := _play.get_center().y
 	enemy_spawn_positions = []
 	for fx in [0.18, 0.32, 0.50, 0.68, 0.82, 0.40, 0.60, 0.25]:
@@ -95,8 +104,8 @@ func _setup_map_sprite() -> void:
 func set_map_texture(path: String) -> void:
 	if _map_sprite == null:
 		_setup_map_sprite()
-	if _kind == "bar":
-		return
+	if _kind == "bar" or _kind == "start":
+		return # bar/lobby are drawn, not textured; combat/shop/boss all use the hallway art
 	var tex: Texture2D = load(path)
 	if tex != null and tex != _map_sprite.texture:
 		_map_sprite.texture = tex
@@ -110,7 +119,22 @@ func set_doors(p_entry_side: int, p_exit_sides: Array, p_locked: bool) -> void:
 	if p_entry_side != -1 and not door_sides.has(p_entry_side):
 		door_sides.append(p_entry_side)
 	doors_locked = p_locked
+	challenge_side = -1 # cleared each room; world.gd re-marks it via set_challenge_door if needed
+	set_process(false)
 	queue_redraw()
+
+# Marks one exit as leading to a challenge room, so it's drawn as a flashing red door. _process is
+# enabled only while such a door is showing, to animate the pulse.
+func set_challenge_door(side: int) -> void:
+	challenge_side = side
+	set_process(true)
+	queue_redraw()
+
+func _process(_delta: float) -> void:
+	if challenge_side != -1 and not doors_locked:
+		queue_redraw() # animate the challenge door's pulse
+	else:
+		set_process(false)
 
 # Trigger zone for a door: a thin band right at the door mouth, so the room only changes once the
 # player has actually walked up to the door. Uses _play, so it adapts to both room sizes.
@@ -156,12 +180,43 @@ func _draw() -> void:
 	if _kind == "bar":
 		_draw_bar()
 		return
+	if _kind == "start":
+		_draw_lobby()
+		return
 	# Combat: the floor/walls come from the Hallway art; only the door status outlines are drawn.
 	for side in door_sides:
 		var frame_col := DOOR_LOCKED_COLOR
+		var width := 3.0
 		if not doors_locked:
-			frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
-		draw_polyline(_door_outline(side), frame_col, 3.0)
+			if side == challenge_side:
+				# Flashing red challenge door (pulses between dim and bright red).
+				var f := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 110.0)
+				frame_col = Color(0.55, 0.02, 0.02).lerp(Color(1.0, 0.20, 0.15), f)
+				width = 5.0
+			else:
+				frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
+		draw_polyline(_door_outline(side), frame_col, width)
+
+# Dark placeholder for the starting lobby (a PNG can replace it): near-black walls, a very dark floor
+# with a faint grid, and the single top door glowing green.
+func _draw_lobby() -> void:
+	draw_rect(Rect2(0.0, 0.0, _room_w, _room_h), Color(0.03, 0.03, 0.05))
+	draw_rect(_play, Color(0.07, 0.07, 0.11))
+	draw_rect(_play, Color(0.16, 0.17, 0.24), false, 3.0)
+	# Faint grid on the floor for depth.
+	var step := 160.0
+	var gx := _play.position.x + step
+	while gx < _play.end.x:
+		draw_line(Vector2(gx, _play.position.y), Vector2(gx, _play.end.y), Color(1, 1, 1, 0.03), 1.0)
+		gx += step
+	var gy := _play.position.y + step
+	while gy < _play.end.y:
+		draw_line(Vector2(_play.position.x, gy), Vector2(_play.end.x, gy), Color(1, 1, 1, 0.03), 1.0)
+		gy += step
+	# The single top door (drawn green — always open).
+	for side in door_sides:
+		var col := DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
+		draw_rect(_bar_door_rect(side), col)
 
 # Low-detail placeholder for the bar (a PNG will replace this): dark walls, a lighter floor band, a
 # bar counter across the middle, and coloured door markers on the edges.

@@ -28,6 +28,22 @@ var equipped_artifact: Dictionary = {}
 var hedge_tokens: int = 0
 var hedged_slots: Dictionary = {}
 
+# Persistent per-run history for the Statistics screen (Info → Statistics). One dict per finished run
+# (recorded on death — see world.gd's _record_run): floor died at, weapon/loadout used, damage dealt/
+# taken, gold earned/spent, kills, accuracy, outcome. Capped so the save file can't grow unbounded.
+var run_history: Array = []
+const RUN_HISTORY_CAP := 500
+
+func record_run(rec: Dictionary) -> void:
+	run_history.append(rec)
+	if run_history.size() > RUN_HISTORY_CAP:
+		run_history = run_history.slice(run_history.size() - RUN_HISTORY_CAP)
+	save()
+
+func clear_run_history() -> void:
+	run_history = []
+	save()
+
 const EQUIP_SLOTS := ["equipped_weapon", "equipped_equipment", "equipped_defensive", "equipped_artifact"]
 
 func _ready() -> void:
@@ -161,6 +177,7 @@ func save() -> void:
 		"equipped_artifact": equipped_artifact,
 		"hedge_tokens": hedge_tokens,
 		"hedged_slots": hedged_slots,
+		"run_history": run_history,
 	}))
 	file.close()
 
@@ -189,3 +206,4 @@ func _load() -> void:
 	equipped_artifact  = parsed.get("equipped_artifact", {})
 	hedge_tokens       = int(parsed.get("hedge_tokens", 0))
 	hedged_slots       = parsed.get("hedged_slots", {})
+	run_history        = parsed.get("run_history", [])

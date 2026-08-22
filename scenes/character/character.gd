@@ -13,13 +13,20 @@ const SHIRT_OPTIONS := [
 	{ "id": "green",  "label": "Green",  "hue": 0.361 },
 ]
 
+# Each shirt colour is a distinct character with a passive (applied in world.gd's _apply_shirt_passive).
+const SHIRT_PASSIVES := {
+	"blue":   "Blue — non-elemental weapons deal 1.5× damage",
+	"red":    "Red — elemental effects are doubled (burn, chain lightning, freeze thaw)",
+	"green":  "Green — melee weapons: +20% damage & rate of fire",
+	"yellow": "Yellow — ranged guns: +20% damage & rate of fire",
+}
+
 const SLOTS := [
 	{ "key": "equipped_weapon",    "label": "Weapon",    "empty_icon": "⚔️",  "type": "weapon"    },
 	{ "key": "equipped_equipment", "label": "Equipment",  "empty_icon": "🎒",  "type": "equipment" },
 	{ "key": "equipped_defensive", "label": "Defense",   "empty_icon": "🛡️",  "type": "defensive" },
-	# Artifacts: passive, sourced from SaveManager.artifact_inventory (not the shared inventory) and
-	# free to equip for now (no point cost shown — see _refresh_slot / _open_picker).
-	{ "key": "equipped_artifact",  "label": "Artifact",  "empty_icon": "🏺",  "type": "artifact", "artifact": true },
+	# Artifacts are no longer equipped here — they are only acquired during a run (bar slot machine,
+	# boss relics) and shown in the in-game HUD's top-right (see hud.gd's refresh_artifact_icons).
 ]
 
 # Rarity styling — matches inventory/item_list so the picker reads the same everywhere.
@@ -46,6 +53,7 @@ const RARITY_ORDER := ["legendary", "epic", "rare", "uncommon", "common"]
 
 var _slot_btns: Array = []
 var _current_overlay: Control = null # the active _open_picker overlay, if any — see _handle_screen_touch
+var _current_panel: Control = null   # the picker's centered panel — taps outside it dismiss the popup
 const TAP_MAX_DRAG := 45.0 # a touch that moves more than this (screen px) is a scroll drag, not a
                             # tap — event positions are physical pixels (~3x), so 12 was far too
                             # tight and normal taps got dropped as drags (popup didn't close)
@@ -60,6 +68,7 @@ func _ready() -> void:
 	_setup_shirt_buttons()
 	_setup_slots()
 	_apply_shirt(SaveManager.shirt_color)
+	_refresh_passive_label()
 	_refresh_points()
 	await get_tree().process_frame
 	_reposition_sprite()
@@ -87,14 +96,25 @@ func _input(event: InputEvent) -> void:
 	# the release happened to land (which could be a gap between buttons → nothing selected → popup
 	# didn't close). A drag past TAP_MAX_DRAG is a scroll, so it selects nothing.
 	if event is InputEventScreenTouch:
+		# While a picker is open it is fully modal: taps are hit-tested ONLY against the overlay, never
+		# the character screen behind it. This is what stops the popup "cycling" — previously a tap that
+		# missed the small ✕ (which sits directly over a slot box) could fall through and re-open a slot
+		# picker, and a double-fired tap (touch + emulated mouse) could even stack two overlays.
+		var ov := _active_overlay()
 		if event.pressed:
 			_touch_start = event.position
 			_touch_moved = false
-			var root: Node = _current_overlay if _current_overlay != null and is_instance_valid(_current_overlay) else self
-			_press_btn = _find_button_at(root, event.position)
+			_press_btn = _find_button_at(ov if ov != null else self, event.position)
 		else:
 			if not _touch_moved and _press_btn != null and is_instance_valid(_press_btn) and _press_btn.visible:
 				_press_btn.pressed.emit()
+				get_viewport().set_input_as_handled()
+			elif ov != null and not _touch_moved and not _panel_has_point(_touch_start):
+				# A clean tap outside the panel (or that missed the ✕) → close the popup in one tap.
+				_close_overlay()
+				get_viewport().set_input_as_handled()
+			elif ov != null:
+				# Any other tap while the popup is open is swallowed so nothing behind it ever reacts.
 				get_viewport().set_input_as_handled()
 			_press_btn = null
 	elif event is InputEventScreenDrag:
@@ -117,6 +137,27 @@ func _find_button_at(root: Node, pixel_pos: Vector2) -> Button:
 		if found != null:
 			return found
 	return null
+
+# The currently-open picker overlay, or null. Treats an overlay that's already been queue_free'd as
+# closed, so a tap in the frame after closing can't be routed to the lingering (freed) node.
+func _active_overlay() -> Control:
+	if _current_overlay != null and is_instance_valid(_current_overlay) and not _current_overlay.is_queued_for_deletion():
+		return _current_overlay
+	return null
+
+func _close_overlay() -> void:
+	if _current_overlay != null and is_instance_valid(_current_overlay):
+		_current_overlay.queue_free()
+	_current_overlay = null
+	_current_panel = null
+
+# True if a screen-pixel position falls inside the current picker panel (used to tell a tap on the
+# panel apart from a tap on the dimmed background, which dismisses the popup).
+func _panel_has_point(pixel_pos: Vector2) -> bool:
+	if _current_panel == null or not is_instance_valid(_current_panel):
+		return false
+	var local: Vector2 = _current_panel.get_global_transform_with_canvas().affine_inverse() * pixel_pos
+	return Rect2(Vector2.ZERO, _current_panel.size).has_point(local)
 
 func _reposition_sprite() -> void:
 	_sprite.position = _canvas.get_global_rect().get_center()
@@ -199,6 +240,10 @@ func _refresh_slot(idx: int) -> void:
 			_pts_lbls[idx].text = "" if equipped.is_empty() else "%d pts" % ItemRegistry.item_points(equipped)
 
 func _open_picker(slot_idx: int) -> void:
+	# Never stack overlays. A single tap can arrive twice (screen-touch AND emulated mouse), which
+	# previously opened two pickers on top of each other — the root cause of the "cycling" close bug.
+	if _active_overlay() != null:
+		return
 	var slot = SLOTS[slot_idx]
 	# Artifacts live in their own inventory; every other slot draws from the shared inventory.
 	var source: Array = SaveManager.artifact_inventory if slot.get("artifact", false) else SaveManager.inventory
@@ -231,6 +276,7 @@ func _open_picker(slot_idx: int) -> void:
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical   = Control.GROW_DIRECTION_BOTH
 	overlay.add_child(panel)
+	_current_panel = panel
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left",   16)
@@ -255,10 +301,9 @@ func _open_picker(slot_idx: int) -> void:
 
 	var close_btn := Button.new()
 	close_btn.text = "✕"
-	close_btn.pressed.connect(func():
-		_current_overlay = null
-		overlay.queue_free()
-	)
+	close_btn.custom_minimum_size = Vector2(48, 48) # big, easy-to-hit target
+	close_btn.add_theme_font_size_override("font_size", 22)
+	close_btn.pressed.connect(_close_overlay)
 	title_row.add_child(close_btn)
 
 	# Unequip button if slot is filled
@@ -371,35 +416,37 @@ func _on_hedge_toggle(slot_idx: int, apply: bool) -> void:
 	else:
 		SaveManager.remove_hedge(key)
 	_refresh_slot(slot_idx)
-	if _current_overlay != null and is_instance_valid(_current_overlay):
-		_current_overlay.queue_free()
-	_current_overlay = null
-	_open_picker(slot_idx) # rebuild so the toggle reflects the new state
+	_close_overlay() # tear down the current picker, then rebuild so the toggle reflects the new state
+	_open_picker(slot_idx)
 
-func _on_equip(slot_idx: int, item: Dictionary, overlay: Control) -> void:
+func _on_equip(slot_idx: int, item: Dictionary, _overlay: Control) -> void:
 	# Swapping the item frees any hedge token on this slot (the token protected the old item).
 	if SaveManager.is_slot_hedged(SLOTS[slot_idx]["key"]):
 		SaveManager.remove_hedge(SLOTS[slot_idx]["key"])
 	SaveManager.set_slot(SLOTS[slot_idx]["key"], item)
 	_refresh_slot(slot_idx)
 	_refresh_points()
-	_current_overlay = null
-	overlay.queue_free()
+	_close_overlay()
 
-func _on_unequip(slot_idx: int, overlay: Control) -> void:
+func _on_unequip(slot_idx: int, _overlay: Control) -> void:
 	if SaveManager.is_slot_hedged(SLOTS[slot_idx]["key"]):
 		SaveManager.remove_hedge(SLOTS[slot_idx]["key"])
 	SaveManager.set_slot(SLOTS[slot_idx]["key"], {})
 	_refresh_slot(slot_idx)
 	_refresh_points()
-	_current_overlay = null
-	overlay.queue_free()
+	_close_overlay()
 
 func _on_shirt_pressed(shirt_id: String) -> void:
 	SaveManager.shirt_color = shirt_id
 	SaveManager.save()
 	_apply_shirt(shirt_id)
 	_refresh_shirt_buttons()
+	_refresh_passive_label()
+
+func _refresh_passive_label() -> void:
+	var lbl := get_node_or_null("VBox/ShirtSection/CharacterPassive") as Label
+	if lbl != null:
+		lbl.text = "✦ " + str(SHIRT_PASSIVES.get(SaveManager.shirt_color, ""))
 
 func _apply_shirt(shirt_id: String) -> void:
 	var hue := 0.583

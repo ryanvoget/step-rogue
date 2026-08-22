@@ -1,6 +1,49 @@
-[gd_scene format=3 uid="uid://bhud00000001"]
+[gd_scene load_steps=8 format=3 uid="uid://bhud00000001"]
 
 [ext_resource type="Script" uid="uid://c7cj3r2pmt3ih" path="res://scenes/ui/hud.gd" id="1_hud"]
+
+[sub_resource type="Gradient" id="Gradient_gloss"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(1, 1, 1, 0.28, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture2D" id="GradTex_gloss"]
+gradient = SubResource("Gradient_gloss")
+width = 8
+height = 32
+fill_from = Vector2(0, 0)
+fill_to = Vector2(0, 1)
+
+[sub_resource type="Gradient" id="Gradient_hp"]
+offsets = PackedFloat32Array(0, 0.09, 0.46, 0.52, 0.85, 1)
+colors = PackedColorArray(1, 0.82, 0.8, 0.96, 1, 0.4, 0.38, 0.92, 0.96, 0.16, 0.2, 0.9, 0.78, 0.08, 0.13, 0.82, 0.58, 0.04, 0.09, 0.8, 0.4, 0.02, 0.06, 0.82)
+
+[sub_resource type="GradientTexture2D" id="GradTex_hp"]
+gradient = SubResource("Gradient_hp")
+width = 8
+height = 64
+fill_from = Vector2(0, 0)
+fill_to = Vector2(0, 1)
+
+[sub_resource type="StyleBoxTexture" id="Fill_hp"]
+content_margin_left = 2.0
+content_margin_top = 2.0
+content_margin_right = 2.0
+content_margin_bottom = 2.0
+texture = SubResource("GradTex_hp")
+
+[sub_resource type="StyleBoxFlat" id="Bg_hp"]
+bg_color = Color(0.11, 0.14, 0.2, 0.4)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.75, 0.88, 1, 0.55)
+corner_radius_top_left = 11
+corner_radius_top_right = 11
+corner_radius_bottom_right = 11
+corner_radius_bottom_left = 11
+shadow_color = Color(0, 0, 0, 0.3)
+shadow_size = 4
 
 [node name="HUD" type="CanvasLayer" unique_id=1515976067]
 script = ExtResource("1_hud")
@@ -9,19 +52,24 @@ script = ExtResource("1_hud")
 offset_left = 10.0
 offset_top = 3.0
 offset_right = 760.0
-offset_bottom = 31.0
+offset_bottom = 36.0
 theme_override_constants/separation = 12
 
 [node name="FloorLabel" type="Label" parent="TopRow" unique_id=1824042223]
 layout_mode = 2
-theme_override_font_sizes/font_size = 15
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 19
 vertical_alignment = 1
 text = "Floor 1"
 
 [node name="GrenadeLabel" type="Label" parent="TopRow"]
 layout_mode = 2
-theme_override_colors/font_color = Color(1.0, 0.7, 0.3, 1.0)
-theme_override_font_sizes/font_size = 15
+theme_override_colors/font_color = Color(1.0, 0.72, 0.32, 1.0)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 19
 vertical_alignment = 1
 text = "🧨 5"
 visible = false
@@ -29,7 +77,9 @@ visible = false
 [node name="TurretLabel" type="Label" parent="TopRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.9, 0.6, 1.0)
-theme_override_font_sizes/font_size = 15
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 19
 vertical_alignment = 1
 text = "🔧 5"
 visible = false
@@ -37,7 +87,9 @@ visible = false
 [node name="BatteryLabel" type="Label" parent="TopRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.45, 1.0, 0.6, 1.0)
-theme_override_font_sizes/font_size = 15
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 19
 vertical_alignment = 1
 text = "🔋 5"
 visible = false
@@ -45,7 +97,9 @@ visible = false
 [node name="MineLabel" type="Label" parent="TopRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1.0, 0.5, 0.3, 1.0)
-theme_override_font_sizes/font_size = 15
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 19
 vertical_alignment = 1
 text = "💣 5"
 visible = false
@@ -53,6 +107,17 @@ visible = false
 [node name="EquippedRow" type="HBoxContainer" parent="TopRow"]
 layout_mode = 2
 theme_override_constants/separation = 4
+
+[node name="ArtifactRow" type="HBoxContainer" parent="."]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 3.0
+offset_right = -10.0
+offset_bottom = 36.0
+grow_horizontal = 0
+alignment = 2
+theme_override_constants/separation = 6
 
 [node name="ShieldBar" type="ProgressBar" parent="."]
 anchor_left = 0.5
@@ -91,30 +156,47 @@ anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -110.0
-offset_top = -54.0
-offset_right = 110.0
-offset_bottom = -30.0
+offset_left = -132.0
+offset_top = -60.0
+offset_right = 132.0
+offset_bottom = -28.0
 grow_horizontal = 2
 grow_vertical = 0
+theme_override_styles/background = SubResource("Bg_hp")
+theme_override_styles/fill = SubResource("Fill_hp")
 value = 100.0
 show_percentage = false
+
+[node name="Gloss" type="TextureRect" parent="PlayerHealthBar"]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = 4.0
+offset_top = 3.0
+offset_right = -4.0
+offset_bottom = 16.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 0
+texture = SubResource("GradTex_gloss")
 
 [node name="PlayerHealthLabel" type="Label" parent="."]
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -110.0
-offset_top = -54.0
-offset_right = 110.0
-offset_bottom = -30.0
+offset_left = -132.0
+offset_top = -60.0
+offset_right = 132.0
+offset_bottom = -28.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_font_sizes/font_size = 13
+theme_override_font_sizes/font_size = 14
 horizontal_alignment = 1
 vertical_alignment = 1
-text = "100 / 100"
+text = "150 / 150"
 
 [node name="ClearedLabel" type="Label" parent="." unique_id=1234567890]
 anchor_left = 0.5

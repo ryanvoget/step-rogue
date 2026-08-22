@@ -14,6 +14,7 @@ const SHOP_NPC_SCENE   := preload("res://scenes/shop_npc/shop_npc.tscn")
 const BARTENDER_SCENE  := preload("res://scenes/bartender/bartender.tscn")
 const BAR_PATRON_SCENE := preload("res://scenes/bar_patron/bar_patron.tscn")
 const SLOT_MACHINE_SCENE := preload("res://scenes/slot_machine/slot_machine.tscn")
+const DASH_PICKUP_SCENE := preload("res://scenes/dash_pickup/dash_pickup.tscn")
 
 # Grid directions per door side — indices match room.gd's SIDE_TOP/BOTTOM/LEFT/RIGHT (0/1/2/3).
 const SIDE_OFFSETS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
@@ -44,7 +45,7 @@ const BAR_BAND_MIN := 10
 const BAR_BAND_MAX := 11
 const BAR_TALK_RANGE := 80.0
 const BAR_DRINKS := [[50, 15], [100, 30], [150, 50]] # [cost, HP restored]
-const SLOT_COST := 50 # credits to spin the bar slot machine for a random (stacking) artifact
+const SLOT_COST := 100 # credits to spin the bar slot machine for a random (stacking) artifact
 const GOLD_PER_UNUSED_POINT := 50 # each loadout point NOT spent converts to this much starting gold
 const SHOP_HEAL_COST := 100
 const SHOP_CRATE_COST := 100
@@ -92,6 +93,8 @@ var _current_entry_side := -1     # the door THIS visit came in through (drawn b
 var _rooms_entered := 1           # distinct rooms discovered so far = current difficulty
 var _rooms_cleared := 0           # total rooms cleared (informational)
 var _reward_popup: Control = null
+var _spinning := false # true while an artifact spin reel is animating — guards against a double-fired
+                       # tap (screen-touch + emulated mouse) starting two overlapping spins
 # Upgrade tree bought at shops. Two branches (damage, rate of fire), 5 bubbles each, per weapon.
 # Each dict maps weapon name -> tiers purchased (0..5). Bubble i multiplies by UPGRADE_MULTS[i]
 # on top of the previous, so the total is the product; costs scale UPGRADE_COSTS[i]. Damage tier
@@ -111,21 +114,29 @@ var _return_to_shop := false      # true while a crate spin was launched from th
 var _crate_track: Control = null
 var _crate_stage: Control = null
 var _crate_last_tick := -1
+var _crate_tween: Tween = null   # the active spin tween — held to fast-forward it (see _input)
+var _ff_label: Label = null      # transparent ⏩ watermark shown while fast-forwarding a spin
+var _dash_pickup: Node2D = null  # the lobby Teleportation Bracelet pickup (freed on walk-over)
 
 func _ready() -> void:
 	GameManager.register_bullets_container(_bullets)
 	_compute_shop_floors() # roll this run's banded shop floors
 	_compute_bar_floors()   # ...then bar floors (avoid shop/boss floors)
+	_compute_challenge_floors() # ...then challenge floors (avoid shop/bar/boss, never floor 1)
 	GameManager.coins = 0 # run-scoped currency — start every run at zero
-	# Active artifacts this run (capped at ItemRegistry.MAX_ARTIFACTS): start with the one equipped on
-	# the character screen, then the bar slot machine adds/replaces up to the cap.
+	# Active artifacts this run (capped at ItemRegistry.MAX_ARTIFACTS): none to start — artifacts are
+	# only acquired DURING a run (bar slot machine adds/replaces up to the cap, boss relics).
 	GameManager.run_artifacts.clear()
-	if not SaveManager.equipped_artifact.is_empty():
-		GameManager.run_artifacts.append(SaveManager.equipped_artifact.duplicate(true))
+	_hud.refresh_artifact_icons() # clear the top-right artifact row for the new run
+	# Teleportation Bracelet dash: locked until picked up in the lobby (see _spawn_dash_pickup).
+	GameManager.dash_unlocked = false
+	GameManager.dash_ready = true
+	GameManager.dash_cooldown_frac = 1.0
 	GameManager.final_boss_beaten = false # hedge-loss: assume the run is lost until the final boss falls
 	GameManager.reset_run_stats() # fresh statistics for the new run (shown on the game-over screen)
 	_weapon_upgrades.clear()
 	GameManager.ui_popup_open = false # persistent autoload — never inherit a stale popup lock
+	GameManager.refresh_shirt_effects() # Red character's doubled elemental effects
 	GameManager.player_died.connect(_on_run_death) # resolve hedge-loss on death
 	GameManager.deploy_equipment_requested.connect(_use_equipment)
 	GameManager.heal_item_requested.connect(_use_heal_item)
@@ -133,6 +144,7 @@ func _ready() -> void:
 	_props = Node2D.new()
 	add_child(_props)
 	_spawn_player()
+	_spawn_dash_pickup() # the Teleportation Bracelet, waiting in the lobby
 	_apply_loadout()
 	# The very first room is an empty "lobby" (number 0) with a single door — the actual first
 	# combat room is the one the player walks into through it (see _go_through_door → number 1).
@@ -181,16 +193,17 @@ func _update_camera(snap: bool = false) -> void:
 	if _camera == null:
 		return
 	var target: Vector2
-	if _room_kind == "bar" and _player != null and is_instance_valid(_player):
-		var rw: float = GameManager.room_w
-		var rh: float = GameManager.room_h
+	var rw: float = GameManager.room_w
+	var rh: float = GameManager.room_h
+	# Scroll to follow the player in any room larger than the view (bar, lobby); centre otherwise.
+	if (rw > VIEW_W or rh > VIEW_H) and _player != null and is_instance_valid(_player):
 		var hw := VIEW_W * 0.5
 		var hh := VIEW_H * 0.5
 		var px: float = clampf(_player.global_position.x, hw, rw - hw) if rw > VIEW_W else rw * 0.5
 		var py: float = clampf(_player.global_position.y, hh, rh - hh) if rh > VIEW_H else rh * 0.5
 		target = Vector2(px, py)
 	else:
-		target = Vector2(GameManager.room_w * 0.5, GameManager.room_h * 0.5)
+		target = Vector2(rw * 0.5, rh * 0.5)
 	_camera.position = target if snap else _camera.position.lerp(target, 0.18)
 
 # Re-pulls each equipped item's stats from the current ItemRegistry by name. Equipped items are
@@ -203,11 +216,6 @@ func _refresh_equipped_from_registry() -> void:
 			var fresh: Dictionary = ItemRegistry.get_item_by_name(nm)
 			if not fresh.is_empty():
 				SaveManager.set_slot(key, fresh.duplicate(true))
-	var an: String = SaveManager.equipped_artifact.get("name", "")
-	if an != "":
-		var fa: Dictionary = ItemRegistry.get_artifact_by_name(an)
-		if not fa.is_empty():
-			SaveManager.set_slot("equipped_artifact", fa.duplicate(true))
 
 # Applies the full equipped loadout (weapon + equipment + defensive) to GameManager state and
 # the live player. Runs at spawn AND again after the every-5-rooms crate reward swaps an item
@@ -318,6 +326,9 @@ func _reequip_weapon() -> void:
 	# Artifacts: Damage+ scales base weapon damage, Rate of Fire+ speeds up its fire rate.
 	if w.get("damage") != null:
 		w["damage"] = int(round(float(w["damage"]) * ItemRegistry.artifact_num("dmg_mult", 1.0)))
+		# Common+ relic: common-rarity weapons do extra damage.
+		if w.get("rarity", "") == "common":
+			w["damage"] = int(round(float(w["damage"]) * ItemRegistry.artifact_num("common_dmg_mult", 1.0)))
 	if w.get("fire_rate") != null:
 		w["fire_rate"] = float(w["fire_rate"]) / ItemRegistry.artifact_num("fire_rate_mult", 1.0)
 	# Knockback+ artifact adds knockback to melee weapons only.
@@ -326,7 +337,39 @@ func _reequip_weapon() -> void:
 		if add_kb > 0.0:
 			var base_kb: float = float(w["knockback"]) if w.get("knockback") != null else 0.0
 			w["knockback"] = base_kb + add_kb
+	# Elemental+ artifact: elemental weapons deal more base damage.
+	var element: String = str(w.get("element", ""))
+	var is_elemental := element != ""
+	if is_elemental and w.get("damage") != null:
+		w["damage"] = int(round(float(w["damage"]) * ItemRegistry.artifact_num("elemental_dmg_mult", 1.0)))
+	# Character (shirt colour) passive — a base-stat bonus tied to the chosen character.
+	_apply_shirt_passive(w, is_elemental)
 	ItemRegistry.equip_on_player(_player, w)
+
+# Applies the selected character's (shirt colour's) passive to the equipped weapon's base damage /
+# fire rate. Blue: +50% dmg to NON-elemental weapons. Green: +20% dmg & rate of fire to MELEE
+# weapons. Yellow: +20% dmg & rate of fire to RANGED gun weapons. Red is handled elsewhere — it
+# scales elemental EFFECTS, not weapon damage, so it has no entry here.
+func _apply_shirt_passive(w: Dictionary, is_elemental: bool) -> void:
+	var shirt: String = SaveManager.shirt_color
+	var is_melee_w: bool = w.get("melee_range") != null or w.get("thrown_melee", false)
+	var is_gun_w: bool = (not is_melee_w) and w.get("beam_range") == null # ranged projectile/launcher
+	var dmg_mult := 1.0
+	var rof_mult := 1.0 # >1 = faster (fire_rate is a cooldown, so we divide by it)
+	if shirt == "blue" and not is_elemental:
+		dmg_mult = 1.5
+	# Red is NOT a damage multiplier — it doubles elemental EFFECT magnitude (burn/chain/thaw)
+	# via GameManager.elemental_effect_mult, applied where each effect lands, not on the weapon.
+	elif shirt == "green" and is_melee_w:
+		dmg_mult = 1.2
+		rof_mult = 1.2
+	elif shirt == "yellow" and is_gun_w:
+		dmg_mult = 1.2
+		rof_mult = 1.2
+	if w.get("damage") != null and dmg_mult != 1.0:
+		w["damage"] = int(round(float(w["damage"]) * dmg_mult))
+	if w.get("fire_rate") != null and rof_mult != 1.0:
+		w["fire_rate"] = float(w["fire_rate"]) / rof_mult
 
 # Uses the equipped equipment (Turret/Advanced Turret = deploy in place; Blast Grenade =
 # throw in the direction the throw joystick was released, from mobile_controls). One-time
@@ -586,8 +629,8 @@ func _use_battery() -> void:
 
 # Enemy roster tiers by floor (see the Enemy Data sheet / enemy_basic.gd TYPES): basics appear
 # anywhere; tier-2 units join at floor 10, tier-3 at floor 20.
-const BASIC_TYPES := ["M", "L"]
-const TIER2_TYPES := ["Void", "Warp", "Crater"]
+const BASIC_TYPES := ["M", "L", "B", "S"]
+const TIER2_TYPES := ["Void", "Warp", "Crater", "Clone", "Meteor"]
 const TIER3_TYPES := ["Cryo", "Solar", "Nebula", "Nova"]
 # Boss floors: only the boss spawns (no other enemies) — see _spawn_enemies_for_room.
 const BOSS_BY_FLOOR := {15: "Boss1", 25: "Boss2"}
@@ -595,6 +638,9 @@ const FINAL_BOSS_FLOOR := 35    # two-phase final boss + "I Got Soda" music (see
 const BOSS_FLOORS := [15, 25, 35] # never place a shop on a boss floor
 var _shop_floors := {}          # floor number -> true; rolled once per run in _ready
 var _bar_floors := {}           # floor number -> true; rolled once per run (never a shop/boss floor)
+var _challenge_floors := {}     # floor number -> true; ~one per decade — the room reached through the
+                                # flashing red challenge door is scaled 10 floors deeper (never a
+                                # shop/bar/boss floor, never floor 1)
 const FINAL_BOSS_MAX_COUNT := 8 # phase-2 split cap so it can't runaway-multiply
 var _final_boss_phase := 0      # 0 = not fighting the final boss, 1/2 = which phase
 var _loss_resolved := false     # hedge-loss resolved once per run (death or quit)
@@ -633,7 +679,11 @@ func _spawn_enemies_for_room() -> void:
 	var entry_pos: Vector2 = _room.entry_position(_current_entry_side) if _current_entry_side != -1 else _room.player_spawn_pos
 	const DOOR_CLEARANCE := 150.0
 	var all_spawns: Array = _room.enemy_spawn_positions.duplicate()
-	var count: int = mini(_enemy_count_for_floor(n), all_spawns.size())
+	# Challenge rooms spawn up to 5 enemies (scaled 10 floors deeper); normal rooms cap at 3.
+	var is_challenge: bool = st.get("challenge", false)
+	var diff_n: int = n + 10 if is_challenge else n
+	var base_count: int = 5 if is_challenge else mini(_enemy_count_for_floor(n), 3)
+	var count: int = mini(base_count, all_spawns.size())
 	var spawns: Array = all_spawns.filter(func(p): return p.distance_to(entry_pos) >= DOOR_CLEARANCE)
 	if spawns.size() >= count:
 		spawns.shuffle()
@@ -642,15 +692,16 @@ func _spawn_enemies_for_room() -> void:
 		spawns = all_spawns
 
 	# Which tougher types are available, and how many of the slots they take over (grows with
-	# depth past floor 10, eventually replacing every basic unit).
+	# depth past floor 10, eventually replacing every basic unit). Challenge rooms use the deeper
+	# scaled difficulty (diff_n) but never a boss type — just harder regular enemies.
 	var hard_pool: Array = []
-	if n >= 20:
+	if diff_n >= 20:
 		hard_pool = TIER2_TYPES + TIER3_TYPES
-	elif n >= 10:
+	elif diff_n >= 10:
 		hard_pool = TIER2_TYPES
 	var hard: int = 0
 	if not hard_pool.is_empty():
-		hard = mini(count, 1 + int((n - 10) / 3))
+		hard = mini(count, 1 + int((diff_n - 10) / 3))
 
 	var types: Array = []
 	for i in range(count):
@@ -667,6 +718,7 @@ func _spawn_enemies_for_room() -> void:
 		e.configure_type(types[i])
 		e.global_position = spawns[i]
 		e.died.connect(_on_enemy_died)
+		e.unit_split.connect(_on_unit_split) # Clone Unit halving
 		_enemies.add_child(e)
 
 # Spawns a single boss (Boss1/Boss2) in the centre of the play area — the whole floor's fight.
@@ -751,11 +803,25 @@ func _on_boss_split(pos: Vector2, hp: int, radius: float, generation: int) -> vo
 	_enemies.add_child(e)
 	_enemies_alive += 1
 
+# A Clone Unit hit half HP: spawn its twin alongside it at the same HP. _enemies_alive has to go
+# up or the room would clear while the twin is still standing (same reason _on_boss_split does it).
+# The twin can't split again — enemy_basic only ever emits this once per unit (_has_split).
+const CLONE_SPLIT_OFFSET := 46.0
+func _on_unit_split(type_key: String, pos: Vector2, hp: int) -> void:
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.configure_type(type_key)
+	e.max_health = hp # _ready() sets health = max_health
+	e._has_split = true
+	e.global_position = pos + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized() * CLONE_SPLIT_OFFSET
+	e.died.connect(_on_enemy_died)
+	_enemies.add_child(e)
+	_enemies_alive += 1
+
 func _on_enemy_died() -> void:
 	_enemies_alive -= 1
 	if _enemies_alive <= 0 and not _clearing:
 		if _final_boss_phase == 2:
-			GameManager.add_coins(9999) # final-boss payout, awarded once phase 2 is fully cleared
+			GameManager.add_coins(250) # final-boss payout, awarded once phase 2 is fully cleared
 			GameManager.final_boss_beaten = true # loadout is now safe for the rest of the run
 			SaveManager.grant_hedge_token() # reward: +1 hedge token for beating the final boss
 		if _final_boss_phase != 0: # final boss defeated → back to normal music
@@ -775,8 +841,39 @@ func _on_hp_for_music(health: int, max_health: int) -> void:
 
 # Hedge-loss: on a run that didn't beat the final boss, the equipped loadout is destroyed (minus any
 # hedged slots). Runs once per run (death or quit); a beaten run is exempt.
+var _run_recorded := false
 func _on_run_death() -> void:
+	if not _run_recorded:
+		_run_recorded = true
+		_record_run() # capture stats + loadout BEFORE hedge-loss wipes the equipped items
 	_resolve_hedge_loss()
+
+# Appends this run to the persistent history (SaveManager.run_history) for the Statistics screen.
+func _record_run() -> void:
+	var w: Dictionary = SaveManager.equipped_weapon
+	var arts: Array = []
+	for a in GameManager.run_artifacts:
+		arts.append(a.get("name", ""))
+	SaveManager.record_run({
+		"date": Time.get_datetime_string_from_system(false, true),
+		"won": GameManager.final_boss_beaten,
+		"floor_died": GameManager.current_floor,
+		"floors_cleared": GameManager.stat_floors_cleared,
+		"weapon": w.get("name", "(none)"),
+		"weapon_rarity": w.get("rarity", ""),
+		"equipment": SaveManager.equipped_equipment.get("name", ""),
+		"defensive": SaveManager.equipped_defensive.get("name", ""),
+		"artifacts": arts,
+		"damage_dealt": GameManager.stat_total_damage,
+		"damage_taken": GameManager.stat_damage_taken,
+		"enemies_slain": GameManager.stat_enemies_slain,
+		"gold_earned": GameManager.stat_gold_earned,
+		"gold_spent": GameManager.stat_gold_spent,
+		"shots_fired": GameManager.stat_shots_fired,
+		"shots_hit": GameManager.stat_shots_hit,
+		"melee_attempts": GameManager.stat_melee_attempts,
+		"melee_hits": GameManager.stat_melee_hits,
+	})
 
 func _resolve_hedge_loss() -> void:
 	if _loss_resolved or GameManager.final_boss_beaten:
@@ -787,6 +884,15 @@ func _resolve_hedge_loss() -> void:
 # Places the shop-keeper NPC in the middle of a shop room. Room-scoped (added to _props so it's
 # freed on the next transition). The shop dialog opens when the player walks up to it — see the
 # proximity check in _physics_process.
+# Places the Teleportation Bracelet pickup in the lobby, just ahead of the player toward the door.
+func _spawn_dash_pickup() -> void:
+	var p: Node2D = DASH_PICKUP_SCENE.instantiate()
+	# In the tall lobby the door is at the top, so place the bracelet a bit up the path to it.
+	var offset := Vector2(0.0, -260.0) if _room_kind == "start" else Vector2(150.0, 0.0)
+	p.global_position = _room.player_spawn_pos + offset
+	_props.add_child(p)
+	_dash_pickup = p
+
 func _spawn_shop_npc() -> void:
 	var npc: Node2D = SHOP_NPC_SCENE.instantiate()
 	npc.global_position = GameManager.play_rect.get_center() # corridor centre
@@ -869,7 +975,7 @@ func _show_bar() -> void:
 func _buy_drink(cost: int, hp: int) -> void:
 	if GameManager.coins < cost or _player == null or not is_instance_valid(_player):
 		return
-	GameManager.coins -= cost
+	GameManager.spend_coins(cost)
 	_player.heal(hp)
 	_show_bar() # refresh balance/enabled states
 
@@ -926,18 +1032,102 @@ func _rarity_text_color(rarity: String) -> Color:
 	return RARITY_TEXT.get(rarity, Color(1, 1, 1))
 
 func _spin_slots() -> void:
-	if GameManager.coins < SLOT_COST:
+	# _spinning guards against a double-fired tap deducting twice / stacking two reels (the orphaned
+	# reel was the "stuck popup" bug — its tween callback freed the wrong popup).
+	if _spinning or GameManager.coins < SLOT_COST:
 		return
-	GameManager.coins -= SLOT_COST
+	_spinning = true
+	GameManager.spend_coins(SLOT_COST)
+	_award_reopen = true # a bar spin returns to the machine afterward
 	var artifact: Dictionary = ItemRegistry.roll_artifact()
-	# At the cap the player must choose one of their current artifacts to replace (or discard the new
-	# one); otherwise it's simply added. Artifacts stack up to ItemRegistry.MAX_ARTIFACTS.
+	_show_artifact_spin(artifact) # crate reel; the add/replace happens once it lands
+
+# Awards a rolled artifact/relic: stacks it (up to ItemRegistry.MAX_ARTIFACTS) or opens the replace
+# dialog if at the cap. _award_reopen decides whether to return to the slot machine afterward (true
+# for a bar spin) or just close the popup (false for a boss relic).
+var _award_reopen := true
+func _award_artifact(artifact: Dictionary) -> void:
 	if GameManager.run_artifacts.size() >= ItemRegistry.MAX_ARTIFACTS:
 		_show_artifact_replace(artifact)
 		return
 	GameManager.run_artifacts.append(artifact)
 	_apply_active_artifacts()
-	_show_slots(artifact) # show what was won, ready to spin again
+	if _award_reopen:
+		_show_slots(artifact) # show what was won, ready to spin again
+	else:
+		_close_reward_popup()
+
+# Crate-style spin reel for a rolled artifact (same reel as the shop crate; fillers are random
+# artifacts, landing on `artifact`). Hold the screen to fast-forward at 2x — see _input.
+func _show_artifact_spin(artifact: Dictionary) -> void:
+	if _reward_popup != null and is_instance_valid(_reward_popup):
+		_reward_popup.queue_free() # never leave the previous popup orphaned behind a new one
+		_reward_popup = null
+	GameManager.ui_popup_open = true
+	_reward_popup = _build_popup_shell()
+	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
+
+	var title := Label.new()
+	title.text = "🎰  Spinning..."
+	title.add_theme_font_size_override("font_size", 17)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	var stage := Control.new()
+	stage.custom_minimum_size = Vector2(0, CRATE_CARD_H)
+	stage.clip_contents = true
+	vbox.add_child(stage)
+
+	var track := HBoxContainer.new()
+	track.add_theme_constant_override("separation", CRATE_CARD_GAP)
+	stage.add_child(track)
+	for _i in range(CRATE_WINNER_IDX):
+		track.add_child(_make_crate_card(ItemRegistry.random_artifact()))
+	track.add_child(_make_crate_card(artifact))
+	for _i in range(8):
+		track.add_child(_make_crate_card(ItemRegistry.random_artifact()))
+
+	var marker := ColorRect.new()
+	marker.color = Color(1.0, 0.85, 0.2, 0.9)
+	marker.anchor_left = 0.5
+	marker.anchor_right = 0.5
+	marker.offset_left = -1.5
+	marker.offset_right = 1.5
+	marker.offset_top = 0.0
+	marker.offset_bottom = CRATE_CARD_H
+	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(marker)
+
+	var hint := Label.new()
+	hint.text = "Hold to fast-forward ⏩"
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.add_theme_color_override("font_color", Color(0.6, 0.63, 0.7))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(hint)
+
+	await get_tree().process_frame
+	if _reward_popup == null or not is_instance_valid(_reward_popup):
+		return
+	var vw := stage.size.x
+	var slot := CRATE_CARD_W + CRATE_CARD_GAP
+	var init_x := vw * 0.5 - slot * 0.5
+	var jitter := randf_range(-CRATE_CARD_W * 0.35, CRATE_CARD_W * 0.35)
+	var end_x := vw * 0.5 - (CRATE_WINNER_IDX * slot + CRATE_CARD_W * 0.5) + jitter
+	track.position = Vector2(init_x, 0)
+	_crate_track = track
+	_crate_stage = stage
+	_crate_last_tick = -1
+	_crate_tween = create_tween()
+	_crate_tween.tween_property(track, "position:x", end_x, 5.0) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_crate_tween.tween_callback(func():
+		_crate_track = null
+		_crate_tween = null
+		_spinning = false
+		_show_ff_watermark(false)
+		_close_reward_popup()
+		_award_artifact(artifact)
+	)
 
 # Re-applies the effects that are baked in at equip time (weapon damage/fire-rate/knockback, bonus
 # max HP) after the active-artifact set changes. The rest (regen, shop cost, invincibility,
@@ -945,6 +1135,7 @@ func _spin_slots() -> void:
 func _apply_active_artifacts() -> void:
 	_reequip_weapon()
 	_apply_hp_bonus()
+	_hud.refresh_artifact_icons() # keep the top-right artifact row in sync with run_artifacts
 
 # At the artifact cap: pick which current artifact the freshly-won one replaces, or discard it.
 func _show_artifact_replace(new_artifact: Dictionary) -> void:
@@ -981,14 +1172,17 @@ func _show_artifact_replace(new_artifact: Dictionary) -> void:
 	var discard := Button.new()
 	discard.text = "Discard new artifact"
 	discard.custom_minimum_size = Vector2(0, 44)
-	discard.pressed.connect(_show_slots)
+	discard.pressed.connect(func(): _show_slots() if _award_reopen else _close_reward_popup())
 	vbox.add_child(discard)
 
 func _replace_artifact(index: int, new_artifact: Dictionary) -> void:
 	if index >= 0 and index < GameManager.run_artifacts.size():
 		GameManager.run_artifacts[index] = new_artifact
 		_apply_active_artifacts()
-	_show_slots(new_artifact)
+	if _award_reopen:
+		_show_slots(new_artifact)
+	else:
+		_close_reward_popup()
 
 # Room cleared: the doors (rolled at creation, red until now) unlock in place — entry turns
 # blue, exits green. (Shop rooms have no enemies, so they never reach here — they're marked
@@ -998,9 +1192,72 @@ func _on_room_cleared() -> void:
 	var st: Dictionary = _rooms[_current_pos]
 	st["cleared"] = true
 	_refresh_doors()
+	_maybe_offer_challenge(st) # if the next floor is a challenge floor, flash one exit red
 	_rooms_cleared += 1
 	GameManager.record_floor_cleared()
 	GameManager.room_cleared.emit()
+	# Defeating a boss grants a boss relic — pick 1 of 2.
+	if st.get("kind", "combat") == "boss":
+		_offer_boss_relics()
+
+# When a combat room is cleared, if the next floor is a rolled challenge floor, pick one of this
+# room's forward exits to be the flashing red challenge door. Taking it makes that next room a
+# challenge (6 enemies scaled 10 floors deeper); the other doors stay a normal combat floor.
+func _maybe_offer_challenge(st: Dictionary) -> void:
+	if st.get("kind", "combat") != "combat" or st.get("challenge", false):
+		return
+	if st.get("challenge_door", -1) != -1:
+		return # already decided (e.g. this room was cleared before)
+	var next_num: int = _rooms_entered + 1
+	if not _challenge_floors.has(next_num) or _kind_for_number(next_num) != "combat":
+		return # once-per-decade cadence, and never in place of a shop/bar/boss floor
+	var candidates: Array = []
+	for side in st["doors"]:
+		if side != _current_entry_side: # a forward exit, not the way back
+			candidates.append(side)
+	if candidates.is_empty():
+		return
+	var side: int = candidates[randi() % candidates.size()]
+	st["challenge_door"] = side
+	_room.set_challenge_door(side)
+
+# On a boss kill: offer two random boss relics; the player picks one (replacing a held artifact if
+# already at the cap). Boss relics never come from the slot machine.
+func _offer_boss_relics() -> void:
+	var choices := ItemRegistry.roll_two_boss_relics()
+	if choices.is_empty():
+		return
+	if _reward_popup != null and is_instance_valid(_reward_popup):
+		_reward_popup.queue_free()
+	GameManager.ui_popup_open = true
+	_reward_popup = _build_popup_shell()
+	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
+	var title := Label.new()
+	title.text = "🏆  Boss Relic"
+	title.add_theme_font_size_override("font_size", 19)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	var msg := Label.new()
+	msg.text = "Choose one to claim:"
+	msg.add_theme_font_size_override("font_size", 13)
+	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(msg)
+	for relic in choices:
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(0, 58)
+		btn.text = "%s\n%s" % [relic.get("name", ""), relic.get("effect", "")]
+		btn.add_theme_font_size_override("font_size", 12)
+		btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		btn.add_theme_color_override("font_color", _rarity_text_color(relic.get("rarity", "")))
+		btn.pressed.connect(_claim_boss_relic.bind(relic))
+		vbox.add_child(btn)
+
+func _claim_boss_relic(relic: Dictionary) -> void:
+	# Reuses the artifact add/replace flow (stacks up to the cap, or opens the replace dialog); a
+	# relic just closes the popup afterward rather than returning to a slot machine.
+	_award_reopen = false
+	_close_reward_popup()
+	_award_artifact(relic)
 
 # A shop room if this floor was rolled as one (banded 8-10 apart — see _compute_shop_floors).
 func _is_shop_room(number: int) -> bool:
@@ -1037,6 +1294,21 @@ func _compute_bar_floors() -> void:
 			tries += 1
 		if not (f in BOSS_FLOORS) and not _shop_floors.has(f):
 			_bar_floors[f] = true
+
+# Rolls this run's challenge floors: roughly one per decade (band k covers floors up to 10k), never
+# floor 1 and never a shop/bar/boss floor — the challenge always lands on a would-be combat floor.
+func _compute_challenge_floors() -> void:
+	_challenge_floors.clear()
+	for k in range(1, 12):
+		var lo: int = maxi(2, 10 * k - 8)
+		var hi: int = 10 * k
+		var f: int = randi_range(lo, hi)
+		var tries := 0
+		while (f in BOSS_FLOORS or _shop_floors.has(f) or _bar_floors.has(f)) and tries < 20:
+			f = randi_range(lo, hi)
+			tries += 1
+		if f >= 2 and not (f in BOSS_FLOORS) and not _shop_floors.has(f) and not _bar_floors.has(f):
+			_challenge_floors[f] = true
 
 # The kind of a room by its floor number: boss / shop / bar / combat (start room is number 0).
 func _kind_for_number(number: int) -> String:
@@ -1082,14 +1354,12 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 		if entry_side != -1 and not doors.has(entry_side):
 			doors.append(entry_side) # plus the way back, wherever the player came in
 	elif kind == "start":
-		var v := _pick_variant_with(3) # right — the single lobby door
-		variant = v["tex"]
-		doors = [3]
+		doors = [0] # single door on top (side 0) leading up to floor 1 — lobby is a drawn room
 	else:
 		var v := _pick_variant(entry_side)
 		variant = v["tex"]
 		doors = v["doors"].duplicate()
-	return {"cleared": cleared, "doors": doors, "entry_side": entry_side, "number": number, "variant": variant, "kind": kind}
+	return {"cleared": cleared, "doors": doors, "entry_side": entry_side, "number": number, "variant": variant, "kind": kind, "challenge": false, "challenge_door": -1}
 
 # Doors the player can currently walk through: none while the room is uncleared (every door,
 # including the one they came in through, stays locked until the fight is won), then all of
@@ -1110,6 +1380,9 @@ func _refresh_doors() -> void:
 	if _room_kind != "bar":
 		_room.set_map_texture(st["variant"]) # load the art whose doors match this room
 	_room.set_doors(_current_entry_side, st["doors"], not st["cleared"])
+	var cd: int = st.get("challenge_door", -1)
+	if cd != -1 and st.get("cleared", false):
+		_room.set_challenge_door(cd) # keep the flashing red door showing when re-entering a cleared room
 	_update_camera(true) # snap the camera to the new room immediately
 
 # Door polling: walls stay physically solid behind the drawn gaps, so transitions trigger off
@@ -1120,6 +1393,12 @@ func _physics_process(_delta: float) -> void:
 		return
 	_tick_artifact_regen(_delta)
 	_update_camera() # scroll to follow the player in bar rooms (no-op/centred otherwise)
+	# Teleportation Bracelet pickup (lobby): walk over it to unlock the dash for the run.
+	if _dash_pickup != null and is_instance_valid(_dash_pickup):
+		if _player.global_position.distance_to(_dash_pickup.global_position) <= 40.0:
+			GameManager.dash_unlocked = true
+			_dash_pickup.queue_free()
+			_dash_pickup = null
 	# Shop keeper: open the shop when the player walks up. _shop_npc_active debounces so it fires
 	# once on approach; after Leaving the shop the player must step out of range and back in.
 	if _shop_npc != null and is_instance_valid(_shop_npc):
@@ -1227,21 +1506,28 @@ func _go_through_door(side: int) -> void:
 		GameManager.equipment_deployed = false
 		GameManager.barrier_state = GameManager.BARRIER_READY
 
+	# Did the player leave through this room's flashing red challenge door? (Read before moving.)
+	var took_challenge: bool = _rooms[_current_pos].get("challenge_door", -1) == side
 	_current_pos += SIDE_OFFSETS[side]
 	var entry := _opposite(side)
 	_current_entry_side = entry
 	if not _rooms.has(_current_pos):
 		_rooms_entered += 1
 		# Shop/bar rooms carry no fight, so they start "cleared" — doors open immediately.
-		_rooms[_current_pos] = _make_room(entry, _rooms_entered)
+		var new_room := _make_room(entry, _rooms_entered)
+		# A combat room reached through the challenge door becomes a challenge (6 tougher enemies).
+		if took_challenge and new_room.get("kind", "") == "combat":
+			new_room["challenge"] = true
+		_rooms[_current_pos] = new_room
 		if _rooms[_current_pos]["cleared"]:
 			GameManager.record_floor_cleared() # non-combat floors count as cleared for run stats
 	var st: Dictionary = _rooms[_current_pos]
 	GameManager.current_floor = st["number"]
 	GameManager.floor_changed.emit(st["number"])
+	_refresh_doors() # reconfigure the room (size/walls/bounds) FIRST so entry_position uses the new room
 	_player.global_position = _room.entry_position(entry)
+	_update_camera(true) # re-snap now that the player is placed in the resized room
 	_grant_room_invincibility() # Invincible+ artifact — every room entry
-	_refresh_doors()
 	match st.get("kind", "combat"):
 		"shop": _spawn_shop_npc()
 		"bar":  _spawn_bar()
@@ -1491,7 +1777,7 @@ func _buy_upgrade_bubble(kind: String, idx: int) -> void:
 	var costs: Array = HP_UPGRADE_COSTS if kind == "hp" else UPGRADE_COSTS
 	if idx != _branch_tier(kind) or GameManager.coins < costs[idx]:
 		return
-	GameManager.coins -= costs[idx]
+	GameManager.spend_coins(costs[idx])
 	match kind:
 		"hp":
 			_hp_tier = idx + 1
@@ -1507,7 +1793,7 @@ func _buy_upgrade_bubble(kind: String, idx: int) -> void:
 func _shop_buy_heal() -> void:
 	if GameManager.coins < _shop_price(SHOP_HEAL_COST):
 		return
-	GameManager.coins -= _shop_price(SHOP_HEAL_COST)
+	GameManager.spend_coins(_shop_price(SHOP_HEAL_COST))
 	if _player != null and is_instance_valid(_player):
 		_player.heal_full()
 	_show_shop()
@@ -1519,7 +1805,7 @@ func _shop_buy_upgrade() -> void:
 	var level: int = _weapon_upgrades.get(wname, 0)
 	if level >= WEAPON_UPGRADE_MAX:
 		return
-	GameManager.coins -= _shop_price(SHOP_UPGRADE_COST)
+	GameManager.spend_coins(_shop_price(SHOP_UPGRADE_COST))
 	_weapon_upgrades[wname] = level + 1
 	_reequip_weapon()
 	_show_shop()
@@ -1557,7 +1843,7 @@ func _shop_buy_crate(crate: String) -> void:
 	if GameManager.coins < _shop_price(SHOP_CRATE_COST):
 		_show_shop()
 		return
-	GameManager.coins -= _shop_price(SHOP_CRATE_COST)
+	GameManager.spend_coins(_shop_price(SHOP_CRATE_COST))
 	var item: Dictionary = ItemRegistry.roll_item_for_crate(crate)
 	SaveManager.add_to_inventory(item)
 	_return_to_shop = true # equip/keep afterward comes back to the shop
@@ -1672,11 +1958,13 @@ func _show_crate_spin(item: Dictionary, crate: String) -> void:
 	_crate_track = track
 	_crate_stage = stage
 	_crate_last_tick = -1
-	var tw := create_tween()
-	tw.tween_property(track, "position:x", end_x, 5.0) \
+	_crate_tween = create_tween()
+	_crate_tween.tween_property(track, "position:x", end_x, 5.0) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_callback(func():
+	_crate_tween.tween_callback(func():
 		_crate_track = null
+		_crate_tween = null
+		_show_ff_watermark(false)
 		_close_reward_popup()
 		_show_crate_result(item)
 	)
@@ -1747,6 +2035,7 @@ func _close_reward_popup() -> void:
 	if _reward_popup != null and is_instance_valid(_reward_popup):
 		_reward_popup.queue_free()
 	_reward_popup = null
+	_spinning = false
 	GameManager.ui_popup_open = false
 
 # Direct touch fallback for the reward popup's buttons, same reasoning as menu.gd/
@@ -1754,6 +2043,15 @@ func _close_reward_popup() -> void:
 # display server may not run emulate_mouse_from_touch, so popup taps could otherwise silently
 # do nothing on iOS.
 func _input(event: InputEvent) -> void:
+	# Hold the screen during a crate/artifact spin to fast-forward it at 2x (with a ⏩ watermark).
+	if _crate_tween != null and _crate_tween.is_valid() and event is InputEventScreenTouch:
+		if event.pressed:
+			_crate_tween.set_speed_scale(2.0)
+			_show_ff_watermark(true)
+		else:
+			_crate_tween.set_speed_scale(1.0)
+			_show_ff_watermark(false)
+		return
 	if _reward_popup == null or not is_instance_valid(_reward_popup):
 		return
 	if event is InputEventScreenTouch and event.pressed:
@@ -1761,6 +2059,23 @@ func _input(event: InputEvent) -> void:
 		if btn != null:
 			btn.pressed.emit()
 			get_viewport().set_input_as_handled()
+
+# Transparent ⏩ fast-forward watermark over the whole screen while a spin is being held.
+func _show_ff_watermark(show: bool) -> void:
+	if show:
+		if _ff_label == null or not is_instance_valid(_ff_label):
+			_ff_label = Label.new()
+			_ff_label.text = "⏩"
+			_ff_label.add_theme_font_size_override("font_size", 120)
+			_ff_label.modulate = Color(1, 1, 1, 0.22) # watermark — barely there
+			_ff_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+			_ff_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_ff_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			_ff_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_hud.add_child(_ff_label)
+	elif _ff_label != null and is_instance_valid(_ff_label):
+		_ff_label.queue_free()
+		_ff_label = null
 
 # Hit-test with get_global_transform_with_canvas() (maps local → screen pixels, correct under the
 # EXPAND stretch) against the raw touch position — get_final_transform()/get_global_rect() mapped

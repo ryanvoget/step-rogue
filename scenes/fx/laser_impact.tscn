@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/fx/laser_impact.gd" id="1_laserimpact"]
+
+[node name="laser_impact" type="Node2D"]
+script = ExtResource("1_laserimpact")

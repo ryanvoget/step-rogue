@@ -44,6 +44,9 @@ const HEAL_TOUCH_MARGIN  := 12.0 # small catch margin around the blue button —
                                   # doesn't bleed into the green control on its left or the fire
                                   # joystick zone on its right
 var _heal_center: Vector2 = Vector2.ZERO
+var _dash_center: Vector2 = Vector2.ZERO # Teleportation Bracelet dash button (above the fire joystick)
+const DASH_BUTTON_RADIUS := 30.0
+var _dash_was_unlocked := false
 var _heal_touch:  int = -1
 
 # ── Speed Boost Battery (equipment), in the same slot as the deploy button/throw joystick
@@ -93,6 +96,11 @@ func _process(_delta: float) -> void:
 	# _tick_invincible every physics frame).
 	if GameManager.equipment_invincible and GameManager.invincible_active:
 		_draw_node.queue_redraw()
+	# The dash button's recharge fill sweeps up continuously (player.gd's _tick_teleport_dash);
+	# also redraw once the frame it's first unlocked so the button appears on pickup.
+	if GameManager.dash_unlocked and (not GameManager.dash_ready or not _dash_was_unlocked):
+		_draw_node.queue_redraw()
+	_dash_was_unlocked = GameManager.dash_unlocked
 	# Shield HP only changes on discrete damage hits rather than continuously, but polling
 	# here (instead of wiring a signal from player.gd's take_damage) keeps the bar in sync
 	# within a frame with no extra cross-file plumbing, consistent with the bars above.
@@ -135,6 +143,7 @@ func _init_positions() -> void:
 	_aim_center    = Vector2(vp.x * 0.87,  vp.y * 0.867)
 	_heal_center   = Vector2(vp.x * 0.328, vp.y * 0.912)
 	_deploy_center = Vector2(vp.x * 0.690, vp.y * 0.912)
+	_dash_center   = Vector2(vp.x * 0.87,  vp.y * 0.62)  # white dash button, above the fire joystick
 	_ready_done = true
 	_draw_node.queue_redraw()
 
@@ -234,6 +243,9 @@ func _handle_touch(e: InputEventScreenTouch) -> void:
 		elif _heal_touch == -1 and _heal_active() and e.position.distance_to(_heal_center) <= HEAL_BUTTON_RADIUS + HEAL_TOUCH_MARGIN:
 			_heal_touch = e.index
 			_press_heal_button()
+		elif GameManager.dash_unlocked and e.position.distance_to(_dash_center) <= DASH_BUTTON_RADIUS + 8.0:
+			GameManager.dash_requested.emit() # dash button (no-op in player.gd if on cooldown)
+			_draw_node.queue_redraw()
 		elif _joy_touch == -1 and _in_move_zone(e.position):
 			_joy_touch = e.index
 			_update_joystick(e.position)
@@ -459,6 +471,27 @@ func _on_draw() -> void:
 			_draw_shield_control()
 		else:
 			_draw_heal_button()
+
+	# ── White dash button above the fire joystick (Teleportation Bracelet). Bright when ready, a
+	# dim fill that sweeps back up while it recharges. ──
+	if GameManager.dash_unlocked:
+		_draw_dash_button()
+
+func _draw_dash_button() -> void:
+	var ready := GameManager.dash_ready
+	var frac := clampf(GameManager.dash_cooldown_frac, 0.0, 1.0)
+	# Base ring.
+	_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS, Color(1, 1, 1, 0.10))
+	# Fill: full & bright when ready, otherwise a partial disc that grows as it recharges.
+	var fill_a := 0.9 if ready else 0.28
+	_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS * (1.0 if ready else frac), Color(1, 1, 1, fill_a))
+	_draw_node.draw_arc(_dash_center, DASH_BUTTON_RADIUS, 0.0, TAU, 32, Color(1, 1, 1, 0.9 if ready else 0.4), 2.0)
+	# Dash glyph: a small double-chevron ">>".
+	var col := Color(0.15, 0.18, 0.28, 1.0) if ready else Color(1, 1, 1, 0.5)
+	for k in range(2):
+		var ox := -8.0 + k * 10.0
+		_draw_node.draw_line(_dash_center + Vector2(ox, -8), _dash_center + Vector2(ox + 7, 0), col, 3.0)
+		_draw_node.draw_line(_dash_center + Vector2(ox + 7, 0), _dash_center + Vector2(ox, 8), col, 3.0)
 
 func _draw_aim_joystick() -> void:
 	var aim_knob  := _aim_center + _aim_offset

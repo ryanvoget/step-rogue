@@ -1,6 +1,6 @@
 extends CharacterBody2D
 
-const SPEED     := 180.0
+const SPEED     := 216.0 # 180 * 1.2 — base move speed. Boosts/hoverboard multiply this.
 const FRAME_W   := 64
 const FRAME_H   := 64
 const IDLE_FPS  := 8.0
@@ -17,7 +17,7 @@ const SHIRT_HUES := {
 }
 
 @export var bullet_scene: PackedScene
-@export var max_health := 100
+@export var max_health := 150
 
 var health: int
 
@@ -94,7 +94,24 @@ var _invincible_mana_drain_rate := 10.0
 # Timed invincibility from the Invincible+ artifact, granted on entering each room (separate from
 # the mana-based battery above). While > 0 it blocks all damage and shows the same purple glow.
 var _room_invincible_timer := 0.0
-const BASE_MAX_HEALTH := 100 # baseline for apply_bonus_max_health (Health+ artifact) idempotency
+const BASE_MAX_HEALTH := 150 # baseline for apply_bonus_max_health (Health+ artifact) idempotency
+
+# Teleportation Bracelet dash (lobby pickup): a quick 100px blink in the move direction, invincible
+# + flashing for the blink, then a 2s cooldown. A dash that dodges an attack within PERFECT_DASH_FRAMES
+# of landing is a "perfect dash" (blue flash + floating "Perfect!", heals with the Perfect Dash+ relic).
+const DASH_DISTANCE := 50.0
+const DASH_IFRAME := 0.28        # seconds of invincibility + flashing per dash
+const DASH_COOLDOWN := 2.0       # recharge time
+const DASH_FLASH_INTERVAL := 0.05
+const PERFECT_DASH_FRAMES := 4.0 # a threat within this many frames of hitting = a perfect dash
+var _dash_iframe := 0.0
+var _dash_cooldown := 0.0
+var _dash_flash_timer := 0.0
+var _dash_flash_on := false
+var _last_move_dir := Vector2.RIGHT # last non-zero move direction (dash falls back to this)
+var _perfect_flash := 0.0        # blue perfect-dash flash timer
+const HIT_FLASH_DUR := 0.22      # seconds the player sprite flashes red after taking damage
+var _hit_flash_timer := 0.0
 
 # Shield Barrier (Light/Medium/Heavy, a heal_item): tap the blue heal button (not a joystick —
 # see item_registry.gd's shield field docs) to arm it once; while active, take_damage is fully
@@ -156,6 +173,10 @@ var _barrel_offset := 0.0 # >0 = dual-barrel weapon; fire one bullet from each s
 var _shot_freeze_duration := 0.0 # >0 = bullets fully halt whatever they hit for this long (e.g. Freeze Gun)
 var _shot_knockback := 0.0 # px/s impulse on hit (e.g. Wave Ray Gun's slight push)
 var _shot_wave_max_width := 0.0 # >0 = bullets are expanding elliptical waves (e.g. Wave Ray Gun)
+# Elemental ranged effects, applied on each bullet (e.g. Fire Blaster burn, Electro Blaster chain).
+var _shot_burn_dmg := 0
+var _shot_burn_dur := 0.0
+var _shot_chain := false
 
 # Melee weapons (set via set_melee_stats) swing in a cone instead of firing a bullet.
 const DEFAULT_MELEE_ARC_DEGREES := 100.0 # total width of the swipe cone in front of the player
@@ -169,6 +190,10 @@ var _melee_stun := 0.0 # seconds to stun on hit, instead of/alongside knockback 
 # Electric Baton: a hit enemy arcs a lightning bolt to the nearest OTHER enemy within CHAIN_RANGE,
 # dealing half the melee damage + the same brief stun. _chain_bolts holds bolts to draw+fade.
 var _melee_chain := false
+# Elemental melee effects (e.g. Fire Daggers burn, Ice Staff freeze).
+var _melee_burn_dmg := 0
+var _melee_burn_dur := 0.0
+var _melee_freeze_dur := 0.0
 const CHAIN_RANGE := 250.0
 const CHAIN_BOLT_DURATION := 0.18
 var _chain_bolts: Array = [] # each {from: Vector2, to: Vector2, remaining: float} in global coords
@@ -263,6 +288,7 @@ func _ready() -> void:
 	_attack_timer.timeout.connect(func(): _can_attack = true)
 	GameManager.sniper_fire_requested.connect(_fire_sniper)
 	GameManager.thrown_melee_throw_requested.connect(_on_thrown_melee_throw_requested)
+	GameManager.dash_requested.connect(do_teleport_dash)
 	_setup_sprite()
 	_setup_weapon()
 
@@ -286,6 +312,7 @@ func _setup_sprite() -> void:
 	_apply_shirt_color()
 
 func _physics_process(delta: float) -> void:
+	_tick_hit_flash(delta)
 	# Follow-through: a melee swing briefly commits the player in place before they can move again.
 	if _melee_lock_timer > 0.0:
 		_melee_lock_timer = maxf(_melee_lock_timer - delta, 0.0)
@@ -294,6 +321,9 @@ func _physics_process(delta: float) -> void:
 	# progress (see _tick_dash), and during a melee swing's commit/recovery window.
 	var dir := Vector2.ZERO if (GameManager.sniper_armed or _dash_active or _melee_lock_timer > 0.0) \
 		else Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if dir.length() > 0.1:
+		_last_move_dir = dir.normalized() # remembered so a dash while standing still still has a direction
+	_tick_teleport_dash(delta)
 	if _frozen_slow_timer > 0.0:
 		_frozen_slow_timer -= delta
 	var frozen_mult := FROZEN_SLOW_MULT if _frozen_slow_timer > 0.0 else 1.0
@@ -409,6 +439,22 @@ func set_ranged_stats(damage: int, fire_rate: float, barrel_offset: float = 0.0,
 	_shot_freeze_duration = freeze_duration
 	_shot_knockback = knockback
 	_shot_wave_max_width = wave_max_width
+	_reset_elemental_effects()
+
+# Elemental effect setters, called by ItemRegistry.equip_on_player after set_ranged/set_melee.
+func _reset_elemental_effects() -> void:
+	_shot_burn_dmg = 0; _shot_burn_dur = 0.0; _shot_chain = false
+	_melee_burn_dmg = 0; _melee_burn_dur = 0.0; _melee_freeze_dur = 0.0
+
+func set_ranged_effects(burn_dmg: int, burn_dur: float, chain: bool) -> void:
+	_shot_burn_dmg = burn_dmg
+	_shot_burn_dur = burn_dur
+	_shot_chain = chain
+
+func set_melee_effects(burn_dmg: int, burn_dur: float, freeze_dur: float) -> void:
+	_melee_burn_dmg = burn_dmg
+	_melee_burn_dur = burn_dur
+	_melee_freeze_dur = freeze_dur
 
 # Applies a melee weapon's tuned gameplay stats (from ItemRegistry) to swing behavior.
 # arc_degrees <= 0 keeps the default cone width. use_joystick_aim swaps mobile_controls'
@@ -431,6 +477,7 @@ func set_melee_stats(damage: int, attack_rate: float, melee_range: float, knockb
 	_melee_hits = hits
 	_melee_arc_degrees = arc_degrees if arc_degrees > 0.0 else DEFAULT_MELEE_ARC_DEGREES
 	_melee_stun = stun
+	_reset_elemental_effects()
 
 func set_chain_lightning(enabled: bool) -> void:
 	_melee_chain = enabled
@@ -600,6 +647,98 @@ func _tick_dash() -> void:
 		return
 	velocity = (_dash_target - global_position).normalized() * GRAPPLE_DASH_SPEED
 
+# ── Teleportation Bracelet dash ─────────────────────────────────────────────────────────────
+
+const PERFECT_TEXT_SCENE := preload("res://scenes/fx/perfect_text.tscn")
+
+# Triggered by the white dash button (GameManager.dash_requested). Blinks DASH_DISTANCE in the move
+# direction, granting a brief invincible/flashing window, then a cooldown. Perfect-dash checked first.
+func do_teleport_dash() -> void:
+	if not GameManager.dash_unlocked or _dash_cooldown > 0.0:
+		return
+	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if dir.length() < 0.1:
+		dir = _last_move_dir # dash even while standing still, using the last-faced direction
+	dir = dir.normalized()
+	if _is_incoming_threat(): # dodged something about to land → perfect dash
+		_do_perfect_dash()
+	global_position += dir * DASH_DISTANCE
+	_clamp_into_play_area()
+	_dash_iframe = DASH_IFRAME
+	_dash_flash_timer = DASH_FLASH_INTERVAL
+	_dash_flash_on = true
+	_dash_cooldown = DASH_COOLDOWN
+	GameManager.dash_ready = false
+
+# Flashes the player sprite red for a moment after taking damage, fading back to normal — an
+# unmistakable "you got hit" cue. Independent of the dash blink (which toggles visibility, not tint).
+func _tick_hit_flash(delta: float) -> void:
+	if _hit_flash_timer <= 0.0:
+		return
+	_hit_flash_timer = maxf(_hit_flash_timer - delta, 0.0)
+	if _hit_flash_timer <= 0.0:
+		_sprite.modulate = Color(1, 1, 1, 1)
+		return
+	var p := _hit_flash_timer / HIT_FLASH_DUR
+	_sprite.modulate = Color(1, 1, 1, 1).lerp(Color(1.0, 0.25, 0.25, 1.0), p)
+
+func _tick_teleport_dash(delta: float) -> void:
+	if _dash_cooldown > 0.0:
+		_dash_cooldown = maxf(_dash_cooldown - delta, 0.0)
+		GameManager.dash_cooldown_frac = 1.0 - _dash_cooldown / DASH_COOLDOWN
+		if _dash_cooldown <= 0.0:
+			GameManager.dash_ready = true
+			GameManager.dash_cooldown_frac = 1.0
+	if _dash_iframe > 0.0:
+		_dash_iframe = maxf(_dash_iframe - delta, 0.0)
+		_dash_flash_timer -= delta
+		if _dash_flash_timer <= 0.0:
+			_dash_flash_timer = DASH_FLASH_INTERVAL
+			_dash_flash_on = not _dash_flash_on
+		_sprite.visible = _dash_flash_on or _dash_iframe <= 0.0
+		if _dash_iframe <= 0.0:
+			_sprite.visible = true
+	if _perfect_flash > 0.0:
+		_perfect_flash = maxf(_perfect_flash - delta, 0.0)
+		queue_redraw()
+
+# True if a laser aimed at the player, or an enemy mid-melee, is within PERFECT_DASH_FRAMES of hitting.
+func _is_incoming_threat() -> bool:
+	var t := PERFECT_DASH_FRAMES / 60.0
+	for b in get_tree().get_nodes_in_group("enemy_bullets"):
+		if not is_instance_valid(b):
+			continue
+		var to_me: Vector2 = global_position - b.global_position
+		var d := to_me.length()
+		var bdir: Vector2 = b.transform.x # bullets travel along +x of their transform
+		if d <= b.speed * t and d > 0.001 and to_me.normalized().dot(bdir) > 0.6:
+			return true
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if is_instance_valid(e) and e.has_method("is_melee_threat") and e.is_melee_threat(global_position, t):
+			return true
+	return false
+
+const PERFECT_DASH_SPEED_MULT := 1.5 # movement-speed reward for a perfect dash
+const PERFECT_DASH_SPEED_TIME := 1.0 # seconds
+func _do_perfect_dash() -> void:
+	_perfect_flash = 0.5
+	# Reward: a brief burst of movement speed so a well-timed dodge flows into a reposition.
+	apply_speed_boost(PERFECT_DASH_SPEED_MULT, PERFECT_DASH_SPEED_TIME)
+	var heal_amt := int(ItemRegistry.artifact_num("perfect_dash_heal", 0.0))
+	if heal_amt > 0:
+		heal(heal_amt)
+	var parent := get_parent()
+	if parent != null:
+		var txt: Node2D = PERFECT_TEXT_SCENE.instantiate()
+		parent.add_child(txt)
+		txt.global_position = global_position + Vector2(0, -30)
+
+func _clamp_into_play_area() -> void:
+	var r: Rect2 = GameManager.play_rect
+	var bm := 16.0
+	global_position.x = clampf(global_position.x, r.position.x + bm, r.end.x - bm)
+	global_position.y = clampf(global_position.y, r.position.y - TOP_FEET_OVERLAP, r.end.y - bm)
+
 func _apply_shirt_color() -> void:
 	var shader := load("res://scenes/character/shirt_recolor.gdshader") as Shader
 	var mat := ShaderMaterial.new()
@@ -664,12 +803,12 @@ func _try_ranged_attack() -> void:
 		var perp := Vector2.RIGHT.rotated(_mouse_angle + PI / 2.0) * _barrel_offset
 		var pos := _spawn_point.global_position
 		var angle := _mouse_angle
-		GameManager.spawn_bullet(bullet_scene, pos + perp, angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true)
+		GameManager.spawn_bullet(bullet_scene, pos + perp, angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain)
 		get_tree().create_timer(_attack_timer.wait_time / 2.0).timeout.connect(
-			func(): GameManager.spawn_bullet(bullet_scene, pos - perp, angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true)
+			func(): GameManager.spawn_bullet(bullet_scene, pos - perp, angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain)
 		)
 	else:
-		GameManager.spawn_bullet(bullet_scene, _spawn_point.global_position, _mouse_angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true)
+		GameManager.spawn_bullet(bullet_scene, _spawn_point.global_position, _mouse_angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain)
 
 # Fires a grenade a fixed _launcher_distance in front of the player (not aimed at a target
 # like the equipment grenade or sniper) — same _attack_timer/fire_rate cooldown as ranged.
@@ -797,9 +936,19 @@ func _tick_melee_swings(delta: float) -> void:
 				continue
 			if enemy.has_method("take_damage"):
 				var knockback_dir := to_enemy.normalized() if dist > 0.001 else Vector2.RIGHT.rotated(swing["angle"])
-				enemy.take_damage(_melee_damage, knockback_dir, _melee_knockback, _melee_stun)
+				# Ice Staff freezes on hit; otherwise apply the weapon's normal (brief) stun.
+				if _melee_freeze_dur > 0.0:
+					enemy.take_damage(_melee_damage, knockback_dir, _melee_knockback, _melee_freeze_dur, Color(0.25, 0.55, 1.0), true, self)
+				else:
+					enemy.take_damage(_melee_damage, knockback_dir, _melee_knockback, _melee_stun)
 				swing["hit"][enemy] = true
 				_spawn_hit_spark(enemy.global_position) # impact sparks at each enemy hit
+				# Burn DOT: strongest of the weapon's own burn (Fire Daggers) and the Melee Fire+ relic.
+				var aburn := int(ItemRegistry.artifact_num("melee_burn_damage", 0.0))
+				var mburn := maxi(aburn, _melee_burn_dmg)
+				if mburn > 0 and enemy.has_method("apply_burn"):
+					var adur := ItemRegistry.artifact_num("melee_burn_duration", 3.0) if aburn > 0 else 0.0
+					enemy.apply_burn(mburn, maxf(adur, _melee_burn_dur))
 				if _melee_chain:
 					_chain_lightning_from(enemy)
 				# Lifesteal+ artifact: each melee hit on an enemy heals the player.
@@ -827,7 +976,7 @@ func _tick_melee_swings(delta: float) -> void:
 # dealing half the baton's damage + the same brief stun, and record the bolt for a quick draw+fade.
 func _chain_lightning_from(source: Node2D) -> void:
 	var best: Node2D = null
-	var best_d := CHAIN_RANGE
+	var best_d := CHAIN_RANGE * ItemRegistry.artifact_num("electric_range_mult", 1.0) # Electric+ relic
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if e == source or not is_instance_valid(e) or not e.has_method("take_damage"):
 			continue
@@ -837,7 +986,8 @@ func _chain_lightning_from(source: Node2D) -> void:
 			best = e
 	if best == null:
 		return
-	var chain_dmg: int = maxi(1, int(_melee_damage / 2))
+	# Red character doubles the arc damage (GameManager.elemental_effect_mult).
+	var chain_dmg: int = maxi(1, int(round(float(_melee_damage) / 2.0 * GameManager.elemental_effect_mult)))
 	best.take_damage(chain_dmg, Vector2.ZERO, 0.0, _melee_stun)
 	_chain_bolts.append({"from": source.global_position, "to": best.global_position, "remaining": CHAIN_BOLT_DURATION})
 	queue_redraw()
@@ -989,6 +1139,10 @@ func _draw() -> void:
 		_draw_force_push_cone()
 	if _invincible_active or _room_invincible_timer > 0.0:
 		_draw_invincible_glow()
+	if _perfect_flash > 0.0:
+		var a := clampf(_perfect_flash / 0.5, 0.0, 1.0)
+		draw_circle(Vector2.ZERO, 30.0, Color(0.3, 0.6, 1.0, a * 0.5))
+		draw_arc(Vector2.ZERO, 30.0, 0.0, TAU, 32, Color(0.4, 0.7, 1.0, a), 3.0)
 	if GameManager.equipment_aim_preview and GameManager.aim_preview_active and GameManager.aim_preview_dir.length() > 0.0:
 		if GameManager.equipment_teleport:
 			_draw_teleport_preview()
@@ -1088,7 +1242,7 @@ func _draw_invincible_glow() -> void:
 func take_damage(amount: int, _knockback_dir: Vector2 = Vector2.ZERO, _knockback_force: float = 0.0,
 		_stun_duration: float = 0.0, _stun_color: Color = Color(1.0, 1.0, 1.0), is_freeze: bool = false,
 		attacker: Node2D = null) -> void:
-	if _invincible_active or _room_invincible_timer > 0.0:
+	if _invincible_active or _room_invincible_timer > 0.0 or _dash_iframe > 0.0:
 		return
 	# Cryo Unit's freeze bolts briefly slow the player (no full stun) — only if they actually
 	# land (shield/invincibility above still fully block).
@@ -1104,7 +1258,9 @@ func take_damage(amount: int, _knockback_dir: Vector2 = Vector2.ZERO, _knockback
 		if _shield_reflect and attacker != null and is_instance_valid(attacker) and attacker.has_method("take_damage"):
 			attacker.take_damage(amount)
 		return
+	GameManager.record_damage_taken(mini(amount, health)) # actual HP lost, for run stats
 	health = max(0, health - amount)
+	_hit_flash_timer = HIT_FLASH_DUR # flash the sprite red so the hit is unmistakable
 	health_changed.emit(health, max_health)
 	GameManager.health_changed.emit(health, max_health)
 	if health == 0:
@@ -1303,7 +1459,7 @@ func toggle_invincible() -> void:
 	queue_redraw() # forces _draw() to re-evaluate the glow immediately either way
 
 func is_invincible() -> bool:
-	return _invincible_active or _room_invincible_timer > 0.0
+	return _invincible_active or _room_invincible_timer > 0.0 or _dash_iframe > 0.0
 
 # Health+ artifact: raise max HP to BASE + bonus and carry current HP up by the increase. Idempotent
 # (re-applying the same bonus is a no-op), so _apply_loadout can call it repeatedly mid-run.
