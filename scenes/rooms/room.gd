@@ -11,8 +11,22 @@ const COMBAT_W := 1040.0
 const COMBAT_H := 480.0
 const BAR_W := 2080.0 # 2x the hallway width; scrolls horizontally
 const BAR_H := 480.0
-const LOBBY_W := 2080.0 # starting room: 2x wide, 3x tall — scrolls both axes, dark themed
-const LOBBY_H := 1440.0
+# Starting room: the "Holding Bay" art, authored 1:1 at final world size (NOT 2x like the
+# hallways), so it draws at scale 1. Taller than the 480px view, so the camera scrolls vertically.
+const LOBBY_W := 1041.0
+const LOBBY_H := 960.0
+const LOBBY_TEXTURE := "res://assets/Sprites/Floor Types/Holding Bay f%d.png"
+const LOBBY_FRAMES := 6      # Holding Bay is a 6-frame loop (a sparkle on the console)
+const LOBBY_FRAME_TIME := 0.1 # 100ms per frame, matching the source GIF
+# "Control Room": a round room, also authored 1:1 at 1041x960 and also vertically scrolling. Its
+# walkable floor is a CIRCLE, so _build_walls rings it with rotated segments instead of 4 rects.
+# The four corridors in the art are decorative — doors are trigger zones at the wall, not openings.
+const CONTROL_W := 1041.0
+const CONTROL_H := 960.0
+const CONTROL_TEXTURE := "res://assets/Sprites/Floor Types/Control Room.png"
+const CONTROL_CENTER := Vector2(519.5, 479.5) # measured from the art
+const CONTROL_RADIUS := 466.0                 # ...as is the floor circle's radius
+const CONTROL_WALL_SEGMENTS := 40             # ring resolution; segments overlap slightly
 
 var _kind := "combat"
 var _room_w := COMBAT_W
@@ -64,16 +78,34 @@ func configure(kind: String) -> void:
 		_room_h = BAR_H
 		_play = Rect2(90.0, 150.0, BAR_W - 180.0, 210.0) # wide walkable band with wall margins
 	elif kind == "start":
-		# The starting lobby: a big, dark, scrolling room with a single door at the top.
+		# The Holding Bay: one door at the top, floor slab measured from the art (32,183)-(1007,922),
+		# inset so the player can't stand inside the wall trim.
 		_room_w = LOBBY_W
 		_room_h = LOBBY_H
-		_play = Rect2(90.0, 90.0, LOBBY_W - 180.0, LOBBY_H - 180.0)
+		_play = Rect2(56.0, 206.0, 928.0, 692.0)
+	elif kind == "control":
+		# Round room. _play is the square the door zones hang off (door_zone/entry_position derive
+		# from it), sized so each zone lands right at the circle's edge by its corridor mouth. The
+		# actual walkable bound is the wall ring built in _build_walls, not this rect.
+		_room_w = CONTROL_W
+		_room_h = CONTROL_H
+		_play = Rect2(120.0, 80.0, 800.0, 800.0)
 	else:
 		_room_w = COMBAT_W
 		_room_h = COMBAT_H
 		_play = Rect2(120.0, 102.0, 800.0, 276.0)
 	_setup_map_sprite()
-	_map_sprite.visible = (kind != "bar" and kind != "start") # combat/shop/boss use hallway art; bar/lobby are drawn
+	# Hallway art is authored at half size and drawn 2x; the Holding Bay and Control Room are
+	# authored at final world size and drawn 1:1.
+	_map_sprite.scale = Vector2.ONE if (kind == "start" or kind == "control") else Vector2(MAP_SCALE, MAP_SCALE)
+	_map_sprite.visible = kind != "bar" # only the bar is still a code-drawn placeholder
+	_set_lobby_animation(kind == "start")
+	if kind == "control":
+		_map_sprite.texture = load(CONTROL_TEXTURE)
+	elif kind != "start":
+		# Reset to a hallway texture so a combat room entered straight after a Control Room never
+		# briefly shows the round art; world.gd's set_map_texture then picks the matching variant.
+		_map_sprite.texture = load(MAP_TEXTURE_PATH)
 	GameManager.room_w = _room_w
 	GameManager.room_h = _room_h
 	GameManager.play_rect = _play
@@ -86,6 +118,41 @@ func configure(kind: String) -> void:
 		var x: float = _play.position.x + _play.size.x * fx
 		enemy_spawn_positions.append(Vector2(x, cy))
 	queue_redraw()
+
+# ── Holding Bay frame loop ───────────────────────────────────────────────────────────────────
+# The lobby art is a 6-frame animation (extracted from the source GIF). Frames are loaded once and
+# cycled by a Timer rather than an AnimatedSprite2D, so the rest of the room code keeps treating
+# _map_sprite as a plain Sprite2D with a swappable texture (set_map_texture, scale, z_index...).
+var _lobby_frames: Array[Texture2D] = []
+var _lobby_frame := 0
+var _lobby_timer: Timer = null
+
+func _set_lobby_animation(on: bool) -> void:
+	if not on:
+		if _lobby_timer != null:
+			_lobby_timer.stop()
+		return
+	if _lobby_frames.is_empty():
+		for i in range(LOBBY_FRAMES):
+			var t: Texture2D = load(LOBBY_TEXTURE % i)
+			if t != null:
+				_lobby_frames.append(t)
+	if _lobby_frames.is_empty():
+		return # art missing — leave whatever texture is set rather than blanking the room
+	_lobby_frame = 0
+	_map_sprite.texture = _lobby_frames[0]
+	if _lobby_timer == null:
+		_lobby_timer = Timer.new()
+		_lobby_timer.wait_time = LOBBY_FRAME_TIME
+		_lobby_timer.timeout.connect(_advance_lobby_frame)
+		add_child(_lobby_timer)
+	_lobby_timer.start()
+
+func _advance_lobby_frame() -> void:
+	if _lobby_frames.is_empty() or _kind != "start":
+		return
+	_lobby_frame = (_lobby_frame + 1) % _lobby_frames.size()
+	_map_sprite.texture = _lobby_frames[_lobby_frame]
 
 func _setup_map_sprite() -> void:
 	if _map_sprite == null:
@@ -104,8 +171,9 @@ func _setup_map_sprite() -> void:
 func set_map_texture(path: String) -> void:
 	if _map_sprite == null:
 		_setup_map_sprite()
-	if _kind == "bar" or _kind == "start":
-		return # bar/lobby are drawn, not textured; combat/shop/boss all use the hallway art
+	if _kind == "bar" or _kind == "start" or _kind == "control":
+		return # these own their own art (drawn placeholder / animated lobby / the round room);
+		       # only combat/shop/boss swap between the interchangeable hallway variants
 	var tex: Texture2D = load(path)
 	if tex != null and tex != _map_sprite.texture:
 		_map_sprite.texture = tex
@@ -243,11 +311,37 @@ func _build_walls() -> void:
 		if is_instance_valid(w):
 			w.queue_free()
 	_wall_bodies.clear()
+	# Round room: ring the circular floor with overlapping rotated segments. A rect box would let
+	# the player walk into the black corners outside the circle (its diagonal exceeds the radius).
+	if _kind == "control":
+		_build_ring_walls(CONTROL_CENTER, CONTROL_RADIUS, CONTROL_WALL_SEGMENTS)
+		return
 	var p := _play
 	_wall(Vector2(p.position.x - WALL_T, p.position.y - WALL_T - TOP_WALL_LIFT), Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # top
 	_wall(Vector2(p.position.x - WALL_T, p.end.y),               Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # bottom
 	_wall(Vector2(p.position.x - WALL_T, p.position.y),          Vector2(WALL_T, p.size.y))                # left
 	_wall(Vector2(p.end.x,               p.position.y),          Vector2(WALL_T, p.size.y))                # right
+
+# Approximates a circular wall with `count` rotated segments sitting just outside `radius`. Each
+# segment is made 1.25x its exact arc length so neighbours overlap and no gap opens up between
+# them at this resolution (a player pushing into a seam would otherwise squeeze through).
+func _build_ring_walls(center: Vector2, radius: float, count: int) -> void:
+	var seg_len := (TAU * radius / float(count)) * 1.25
+	for i in range(count):
+		var a := TAU * float(i) / float(count)
+		var dir := Vector2(cos(a), sin(a))
+		var body := StaticBody2D.new()
+		body.position = center + dir * (radius + WALL_T * 0.5)
+		body.rotation = a + PI * 0.5 # long axis tangent to the circle
+		body.collision_layer = 8
+		body.collision_mask = 0
+		var col := CollisionShape2D.new()
+		var shape := RectangleShape2D.new()
+		shape.size = Vector2(seg_len, WALL_T)
+		col.shape = shape # centred on the body, unlike the axis-aligned _wall below
+		body.add_child(col)
+		add_child(body)
+		_wall_bodies.append(body)
 
 func _wall(pos: Vector2, size: Vector2) -> void:
 	var body  := StaticBody2D.new()

@@ -29,6 +29,8 @@ const HALLWAY_VARIANTS := [
 	{"tex": "res://assets/Sprites/Floor Types/Hallway v5.png", "doors": [0, 2, 3]},    # top, left, right
 	{"tex": "res://assets/Sprites/Floor Types/Hallway v6.png", "doors": [0, 1, 2]},    # top, bottom, left
 ]
+# Share of combat rooms that use the round Control Room layout instead of a hallway variant.
+const CONTROL_ROOM_CHANCE := 0.5
 const GRENADE_CHARGES := 5 # throwable grenades get this many uses per run instead of one-shot
 const TURRET_CHARGES := 5   # placeable turrets get this many deploys per run instead of one-shot
 const MINE_CHARGES := 5     # detonator mines get this many uses per run instead of one-shot
@@ -1354,7 +1356,13 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 		if entry_side != -1 and not doors.has(entry_side):
 			doors.append(entry_side) # plus the way back, wherever the player came in
 	elif kind == "start":
-		doors = [0] # single door on top (side 0) leading up to floor 1 — lobby is a drawn room
+		doors = [0] # single door on top (side 0) — the Holding Bay art has one door, at the top
+	elif kind == "combat" and randf() < CONTROL_ROOM_CHANCE:
+		# Half of all combat rooms are the round Control Room instead of a hallway. It's a
+		# different size/shape, so it's a room KIND (room.gd::configure) rather than another
+		# entry in HALLWAY_VARIANTS — and it has all four doors, so any entry side is fine.
+		kind = "control"
+		doors = [0, 1, 2, 3]
 	else:
 		var v := _pick_variant(entry_side)
 		variant = v["tex"]
@@ -1377,8 +1385,9 @@ func _refresh_doors() -> void:
 	var st: Dictionary = _rooms[_current_pos]
 	_room_kind = st.get("kind", "combat")
 	_room.configure(_room_kind) # sets size, walls, bounds, and (for bar) the scrolling layout
-	if _room_kind != "bar":
+	if st["variant"] != "":
 		_room.set_map_texture(st["variant"]) # load the art whose doors match this room
+		                                     # (bar/lobby/control have no variant — they own their art)
 	_room.set_doors(_current_entry_side, st["doors"], not st["cleared"])
 	var cd: int = st.get("challenge_door", -1)
 	if cd != -1 and st.get("cleared", false):
