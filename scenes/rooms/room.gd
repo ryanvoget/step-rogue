@@ -1,8 +1,12 @@
 extends Node2D
 
-# The room has two layouts, switched by world.gd via configure(kind):
-#  • "combat"/"start": the 520x240 "Hallway v2" art drawn at MAP_SCALE (2x) → a 1040x480 room shown
-#    at 1x camera zoom, exactly screen-filling (fixed camera). This is the original room.
+# The room has four layouts, switched by world.gd via configure(kind):
+#  • "combat" (also shop/boss): a 520x240 "Hallway" variant drawn at MAP_SCALE (2x) → a 1040x480
+#    room shown at 1x camera zoom, exactly screen-filling (fixed camera). The original room.
+#  • "control": the round Control Room, art authored 1:1 at 1041x960 (so scale 1). Taller than the
+#    view, so the camera scrolls vertically. Walkable floor is a CIRCLE — see _build_walls.
+#  • "start": the Holding Bay lobby, also 1:1 at 1041x960 and vertically scrolling, and the only
+#    animated room (6 frames, see _set_lobby_animation). One door, at the top.
 #  • "bar": a 2080x480 room (2x the hallway width) with a low-detail placeholder floor drawn in code
 #    (no PNG yet), which the camera SCROLLS across as the player moves (see world.gd's camera update).
 # _play is the walkable floor; world reads GameManager.play_rect / room_w / room_h for all bounds.
@@ -11,13 +15,28 @@ const COMBAT_W := 1040.0
 const COMBAT_H := 480.0
 const BAR_W := 2080.0 # 2x the hallway width; scrolls horizontally
 const BAR_H := 480.0
-# Starting room: the "Holding Bay" art, authored 1:1 at final world size (NOT 2x like the
-# hallways), so it draws at scale 1. Taller than the 480px view, so the camera scrolls vertically.
-const LOBBY_W := 1041.0
-const LOBBY_H := 960.0
+# Starting room: the "Holding Bay" art (1041x960) drawn at MAP_SCALE like the hallways, so its
+# pixel density matches the player sprite and the room comes out 2082x1920 — twice the width of a
+# 1040-wide hallway room. Bigger than the view on both axes, so the camera scrolls to follow.
+# Every LOBBY_* rect below is in WORLD units, i.e. the measured art coordinate x2.
+const LOBBY_W := 2082.0
+const LOBBY_H := 1920.0
 const LOBBY_TEXTURE := "res://assets/Sprites/Floor Types/Holding Bay f%d.png"
 const LOBBY_FRAMES := 6      # Holding Bay is a 6-frame loop (a sparkle on the console)
 const LOBBY_FRAME_TIME := 0.1 # 100ms per frame, matching the source GIF
+# Measured from the art: the floor slab the player can walk on (the corridor above it is art —
+# the top door is a trigger at the slab's edge, like every other door), and the two barred
+# holding cells at the bottom that the player starts inside.
+const LOBBY_SLAB := Rect2(112.0, 808.0, 1856.0, 992.0)             # art (56,404,928,496) x2
+const LOBBY_CELLS := [Vector2(386.0, 1594.0), Vector2(1690.0, 1594.0)] # art (193,797)/(845,797) x2
+const LOBBY_CONSOLE := Vector2(1038.0, 1190.0)                     # art (519,595) x2 — the blue circle
+# The long corridor running up out of the slab. It IS walkable (the walls are T-shaped — see
+# _build_lobby_walls), and the door sits at the far top end of it rather than where it meets the
+# slab, so the run opens with a walk up the full hallway.
+const LOBBY_CORRIDOR_X0 := 924.0  # art 462 x2
+const LOBBY_CORRIDOR_X1 := 1156.0 # art 578 x2
+const LOBBY_CORRIDOR_TOP := 152.0 # art 76 x2 — player walks up to here; the dark doorway is above
+const LOBBY_DOOR_RECT := Rect2(924.0, 0.0, 232.0, 152.0)
 # "Control Room": a round room, also authored 1:1 at 1041x960 and also vertically scrolling. Its
 # walkable floor is a CIRCLE, so _build_walls rings it with rotated segments instead of 4 rects.
 # The four corridors in the art are decorative — doors are trigger zones at the wall, not openings.
@@ -78,11 +97,16 @@ func configure(kind: String) -> void:
 		_room_h = BAR_H
 		_play = Rect2(90.0, 150.0, BAR_W - 180.0, 210.0) # wide walkable band with wall margins
 	elif kind == "start":
-		# The Holding Bay: one door at the top, floor slab measured from the art (32,183)-(1007,922),
-		# inset so the player can't stand inside the wall trim.
+		# The Holding Bay: one door at the top. The walkable slab is (32,380)-(1007,922) in the art
+		# — everything above that is the corridor, which is scenery — inset so the player can't
+		# stand inside the wall trim.
 		_room_w = LOBBY_W
 		_room_h = LOBBY_H
-		_play = Rect2(56.0, 206.0, 928.0, 692.0)
+		# NOTE: _play must span the corridor as well as the slab. player.gd hard-clamps the player
+		# to GameManager.play_rect every frame, so a slab-only rect makes the corridor unreachable
+		# — an invisible wall across the hallway, no matter what the colliders say. The T shape is
+		# enforced by _build_lobby_walls; this rect is just the outer bound.
+		_play = Rect2(LOBBY_SLAB.position.x, LOBBY_CORRIDOR_TOP, LOBBY_SLAB.size.x, LOBBY_SLAB.end.y - LOBBY_CORRIDOR_TOP)
 	elif kind == "control":
 		# Round room. _play is the square the door zones hang off (door_zone/entry_position derive
 		# from it), sized so each zone lands right at the circle's edge by its corridor mouth. The
@@ -95,9 +119,9 @@ func configure(kind: String) -> void:
 		_room_h = COMBAT_H
 		_play = Rect2(120.0, 102.0, 800.0, 276.0)
 	_setup_map_sprite()
-	# Hallway art is authored at half size and drawn 2x; the Holding Bay and Control Room are
-	# authored at final world size and drawn 1:1.
-	_map_sprite.scale = Vector2.ONE if (kind == "start" or kind == "control") else Vector2(MAP_SCALE, MAP_SCALE)
+	# Hallway and Holding Bay art are drawn at MAP_SCALE (2x), matching the player sprite's own 2x
+	# so pixel density lines up. The Control Room is the one drawn 1:1.
+	_map_sprite.scale = Vector2.ONE if kind == "control" else Vector2(MAP_SCALE, MAP_SCALE)
 	_map_sprite.visible = kind != "bar" # only the bar is still a code-drawn placeholder
 	_set_lobby_animation(kind == "start")
 	if kind == "control":
@@ -110,8 +134,12 @@ func configure(kind: String) -> void:
 	GameManager.room_h = _room_h
 	GameManager.play_rect = _play
 	_build_walls()
-	# Lobby: spawn near the bottom so the player walks up toward the single top door.
-	player_spawn_pos = Vector2(_play.get_center().x, _play.end.y - 140.0) if kind == "start" else _play.get_center()
+	# Lobby: start locked in one of the two holding cells (picked at random), so the run opens
+	# with a walk up out of the cell toward the single top door.
+	if kind == "start":
+		player_spawn_pos = LOBBY_CELLS[randi() % LOBBY_CELLS.size()]
+	else:
+		player_spawn_pos = _play.get_center()
 	var cy := _play.get_center().y
 	enemy_spawn_positions = []
 	for fx in [0.18, 0.32, 0.50, 0.68, 0.82, 0.40, 0.60, 0.25]:
@@ -207,6 +235,12 @@ func _process(_delta: float) -> void:
 # Trigger zone for a door: a thin band right at the door mouth, so the room only changes once the
 # player has actually walked up to the door. Uses _play, so it adapts to both room sizes.
 func door_zone(side: int) -> Rect2:
+	# Holding Bay: the door is at the FAR top of the corridor, not where it meets the slab, so the
+	# trigger band sits just below the doorway rather than being derived from _play.
+	if _kind == "start" and side == SIDE_TOP:
+		# Deep band (down the top of the corridor) so it fires well before the player reaches the
+		# cap wall — the transition should never feel like walking into a dead end.
+		return Rect2(LOBBY_CORRIDOR_X0, LOBBY_CORRIDOR_TOP, LOBBY_CORRIDOR_X1 - LOBBY_CORRIDOR_X0, 200.0)
 	var c := _play.get_center()
 	match side:
 		SIDE_TOP:    return Rect2(c.x - DOOR_W / 2.0, _play.position.y - 62.0, DOOR_W, 50.0)
@@ -227,6 +261,23 @@ func entry_position(side: int) -> Vector2:
 
 # Closed outline (world coords) tracing each combat door's true trapezoid (hallway art perspective).
 func _door_outline(side: int) -> PackedVector2Array:
+	# Round room: the doors are the four rectangular bays where the circle breaks out into a
+	# straight-sided nub at the map edge. Measured from the art (top/bottom bays are 128 wide and
+	# 25 deep; the left/right ones are 104 tall and ~59 deep, since the circle is inset more
+	# horizontally than vertically in a 1041x960 frame).
+	if _kind == "control":
+		match side:
+			SIDE_TOP:    return PackedVector2Array([Vector2(456,0),   Vector2(584,0),   Vector2(584,25),  Vector2(456,25),  Vector2(456,0)])
+			SIDE_BOTTOM: return PackedVector2Array([Vector2(456,935), Vector2(584,935), Vector2(584,960), Vector2(456,960), Vector2(456,935)])
+			SIDE_LEFT:   return PackedVector2Array([Vector2(0,428),   Vector2(59,428),  Vector2(59,532),  Vector2(0,532),   Vector2(0,428)])
+			SIDE_RIGHT:  return PackedVector2Array([Vector2(1041,431),Vector2(981,431), Vector2(981,529), Vector2(1041,529),Vector2(1041,431)])
+		return PackedVector2Array()
+	# Holding Bay: one door, drawn around the dark mouth at the far top end of the corridor.
+	if _kind == "start":
+		if side == SIDE_TOP:
+			var d := LOBBY_DOOR_RECT
+			return PackedVector2Array([d.position, Vector2(d.end.x, d.position.y), d.end, Vector2(d.position.x, d.end.y), d.position])
+		return PackedVector2Array()
 	match side:
 		SIDE_TOP:    return PackedVector2Array([Vector2(452,0),   Vector2(586,0),   Vector2(564,96),  Vector2(474,96),  Vector2(452,0)])
 		SIDE_BOTTOM: return PackedVector2Array([Vector2(474,382), Vector2(564,382), Vector2(586,478), Vector2(452,478), Vector2(474,382)])
@@ -248,11 +299,14 @@ func _draw() -> void:
 	if _kind == "bar":
 		_draw_bar()
 		return
-	if _kind == "start":
-		_draw_lobby()
-		return
+	# The lobby used to be a code-drawn placeholder; it now has real art (Holding Bay), so drawing
+	# that background here would paint straight over the sprite (which sits at z_index -10). Only
+	# the door marker is drawn now, exactly like a combat room.
 	# Combat: the floor/walls come from the Hallway art; only the door status outlines are drawn.
 	for side in door_sides:
+		var outline := _door_outline(side)
+		if outline.size() < 2:
+			continue # this layout has no marker for that side (e.g. the lobby's single top door)
 		var frame_col := DOOR_LOCKED_COLOR
 		var width := 3.0
 		if not doors_locked:
@@ -263,28 +317,7 @@ func _draw() -> void:
 				width = 5.0
 			else:
 				frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
-		draw_polyline(_door_outline(side), frame_col, width)
-
-# Dark placeholder for the starting lobby (a PNG can replace it): near-black walls, a very dark floor
-# with a faint grid, and the single top door glowing green.
-func _draw_lobby() -> void:
-	draw_rect(Rect2(0.0, 0.0, _room_w, _room_h), Color(0.03, 0.03, 0.05))
-	draw_rect(_play, Color(0.07, 0.07, 0.11))
-	draw_rect(_play, Color(0.16, 0.17, 0.24), false, 3.0)
-	# Faint grid on the floor for depth.
-	var step := 160.0
-	var gx := _play.position.x + step
-	while gx < _play.end.x:
-		draw_line(Vector2(gx, _play.position.y), Vector2(gx, _play.end.y), Color(1, 1, 1, 0.03), 1.0)
-		gx += step
-	var gy := _play.position.y + step
-	while gy < _play.end.y:
-		draw_line(Vector2(_play.position.x, gy), Vector2(_play.end.x, gy), Color(1, 1, 1, 0.03), 1.0)
-		gy += step
-	# The single top door (drawn green — always open).
-	for side in door_sides:
-		var col := DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
-		draw_rect(_bar_door_rect(side), col)
+		draw_polyline(outline, frame_col, width)
 
 # Low-detail placeholder for the bar (a PNG will replace this): dark walls, a lighter floor band, a
 # bar counter across the middle, and coloured door markers on the edges.
@@ -316,11 +349,34 @@ func _build_walls() -> void:
 	if _kind == "control":
 		_build_ring_walls(CONTROL_CENTER, CONTROL_RADIUS, CONTROL_WALL_SEGMENTS)
 		return
+	if _kind == "start":
+		_build_lobby_walls()
+		return
 	var p := _play
 	_wall(Vector2(p.position.x - WALL_T, p.position.y - WALL_T - TOP_WALL_LIFT), Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # top
 	_wall(Vector2(p.position.x - WALL_T, p.end.y),               Vector2(p.size.x + 2.0 * WALL_T, WALL_T)) # bottom
 	_wall(Vector2(p.position.x - WALL_T, p.position.y),          Vector2(WALL_T, p.size.y))                # left
 	_wall(Vector2(p.end.x,               p.position.y),          Vector2(WALL_T, p.size.y))                # right
+
+# T-shaped bounds for the Holding Bay: the floor slab, plus the corridor running up out of the
+# middle of its top edge. The slab's top wall is split into two segments so the corridor mouth is
+# open, and the corridor is capped at LOBBY_CORRIDOR_TOP where the doorway begins.
+func _build_lobby_walls() -> void:
+	var p := LOBBY_SLAB
+	var x0 := LOBBY_CORRIDOR_X0
+	var x1 := LOBBY_CORRIDOR_X1
+	_wall(Vector2(p.position.x - WALL_T, p.end.y), Vector2(p.size.x + 2.0 * WALL_T, WALL_T))       # slab bottom
+	_wall(Vector2(p.position.x - WALL_T, p.position.y), Vector2(WALL_T, p.size.y))                 # slab left
+	_wall(Vector2(p.end.x, p.position.y), Vector2(WALL_T, p.size.y))                               # slab right
+	# Slab top, either side of the corridor mouth.
+	_wall(Vector2(p.position.x - WALL_T, p.position.y - WALL_T), Vector2(x0 - (p.position.x - WALL_T), WALL_T))
+	_wall(Vector2(x1, p.position.y - WALL_T), Vector2(p.end.x + WALL_T - x1, WALL_T))
+	# Corridor sides, from the doorway down to the slab.
+	var corr_h := p.position.y - LOBBY_CORRIDOR_TOP
+	_wall(Vector2(x0 - WALL_T, LOBBY_CORRIDOR_TOP), Vector2(WALL_T, corr_h))
+	_wall(Vector2(x1, LOBBY_CORRIDOR_TOP), Vector2(WALL_T, corr_h))
+	# Cap at the top — the player stops here, at the door.
+	_wall(Vector2(x0 - WALL_T, LOBBY_CORRIDOR_TOP - WALL_T), Vector2(x1 - x0 + 2.0 * WALL_T, WALL_T))
 
 # Approximates a circular wall with `count` rotated segments sitting just outside `radius`. Each
 # segment is made 1.25x its exact arc length so neighbours overlap and no gap opens up between

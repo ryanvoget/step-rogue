@@ -145,14 +145,18 @@ func _ready() -> void:
 	GameManager.battery_activate_requested.connect(_use_battery)
 	_props = Node2D.new()
 	add_child(_props)
-	_spawn_player()
-	_spawn_dash_pickup() # the Teleportation Bracelet, waiting in the lobby
-	_apply_loadout()
 	# The very first room is an empty "lobby" (number 0) with a single door — the actual first
 	# combat room is the one the player walks into through it (see _go_through_door → number 1).
+	# This has to happen BEFORE _spawn_player: room.gd defaults to the "combat" hallway in its own
+	# _ready, so spawning first would read the hallway's centre as player_spawn_pos and strand the
+	# player up in the Holding Bay's corridor once the room reconfigured under them.
 	_rooms_entered = 0
 	_rooms[Vector2i.ZERO] = _make_room(-1, 0)
 	_refresh_doors()
+	_spawn_player()
+	_spawn_dash_pickup() # the Teleportation Bracelet, waiting in the lobby
+	_apply_loadout()
+	_update_camera(true) # snap to the player now that they exist (the _refresh_doors call had none)
 	GameManager.current_floor = 0
 	GameManager.floor_changed.emit(0)
 	# Layered "Hatches" game music: starts on the lobby, floor tiers add stems (5/10/15), and dips to
@@ -889,9 +893,12 @@ func _resolve_hedge_loss() -> void:
 # Places the Teleportation Bracelet pickup in the lobby, just ahead of the player toward the door.
 func _spawn_dash_pickup() -> void:
 	var p: Node2D = DASH_PICKUP_SCENE.instantiate()
-	# In the tall lobby the door is at the top, so place the bracelet a bit up the path to it.
-	var offset := Vector2(0.0, -260.0) if _room_kind == "start" else Vector2(150.0, 0.0)
-	p.global_position = _room.player_spawn_pos + offset
+	# In the Holding Bay it sits on the blue console in the middle of the floor — on the way from
+	# either holding cell to the corridor, so it's picked up naturally on the way out.
+	if _room_kind == "start":
+		p.global_position = _room.LOBBY_CONSOLE
+	else:
+		p.global_position = _room.player_spawn_pos + Vector2(150.0, 0.0)
 	_props.add_child(p)
 	_dash_pickup = p
 
