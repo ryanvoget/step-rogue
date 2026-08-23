@@ -18,6 +18,15 @@ var _age := 0.0
 var _value := VALUE # how much this coin is worth on pickup (set per-coin so a drop can total exactly
                     # the enemy's gold — see enemy_basic.gd _drop_coins)
 
+func _ready() -> void:
+	# world.gd finds uncollected coins by group when the player leaves a room, so it can put them
+	# back where they were if the player walks in again (see _stash_dropped_coins).
+	add_to_group("coins")
+
+# What this coin is worth — read when stashing an uncollected drop across a room transition.
+func value() -> int:
+	return _value
+
 func burst(pos: Vector2, dir: Vector2, speed: float, value: int = VALUE) -> void:
 	global_position = pos
 	_vel = dir * speed

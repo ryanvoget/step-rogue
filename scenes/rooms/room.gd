@@ -1,20 +1,37 @@
 extends Node2D
 
-# The room has four layouts, switched by world.gd via configure(kind):
-#  • "combat" (also shop/boss): a 520x240 "Hallway" variant drawn at MAP_SCALE (2x) → a 1040x480
-#    room shown at 1x camera zoom, exactly screen-filling (fixed camera). The original room.
-#  • "control": the round Control Room, art authored 1:1 at 1041x960 (so scale 1). Taller than the
-#    view, so the camera scrolls vertically. Walkable floor is a CIRCLE — see _build_walls.
-#  • "start": the Holding Bay lobby, also 1:1 at 1041x960 and vertically scrolling, and the only
-#    animated room (6 frames, see _set_lobby_animation). One door, at the top.
-#  • "bar": a 2080x480 room (2x the hallway width) with a low-detail placeholder floor drawn in code
-#    (no PNG yet), which the camera SCROLLS across as the player moves (see world.gd's camera update).
-# _play is the walkable floor; world reads GameManager.play_rect / room_w / room_h for all bounds.
+# The room has six layouts, switched by world.gd via configure(kind). Art is authored at one of two
+# scales: the "hallway convention" (half size, drawn at MAP_SCALE 2x) or 1:1. The player sprite is
+# itself drawn at 2x, so hallway-convention art matches its pixel density and 1:1 art does not.
+#  • "combat" (also shop/boss): a 520x240 "Hallway" variant at 2x -> 1040x480, exactly screen
+#    filling, fixed camera. The original room.
+#  • "control": the round Control Room, 1041x960 authored 1:1. Taller than the view, so the camera
+#    scrolls vertically. Its walkable floor is a CIRCLE — see _build_ring_walls.
+#  • "cockpit": 780x240 at 2x -> 1560x480. Same height as a hallway, half again as wide, scrolls
+#    horizontally. Its doors are not centred on their edges, so it carries explicit door rects.
+#  • "docking": 1041x960 authored 1:1, animated (26 frames). Only the lower slab is walkable;
+#    the top half is the starfield window. No top door.
+#  • "start": the Holding Bay lobby, 1041x960 at 2x -> 2082x1920, animated (6 frames). One door, at
+#    the top of a corridor, and T-shaped bounds — see _build_lobby_walls.
+#  • "bar": the cantina, 1041x960 authored 1:1. All four edges have a door.
+# Rooms bigger than the view scroll (world.gd's _update_camera follows the player, clamped to the
+# map). _play is the walkable floor; world reads GameManager.play_rect / room_w / room_h for bounds.
 const MAP_SCALE := 2.0
 const COMBAT_W := 1040.0
 const COMBAT_H := 480.0
-const BAR_W := 2080.0 # 2x the hallway width; scrolls horizontally
-const BAR_H := 480.0
+# "Bar": the cantina. Drawn 1:1 like the Control Room, so the room is exactly the art's 1041x960
+# and every BAR_* value below is a raw measured art coordinate. All four edges have a door, each
+# a rectangle jutting out of the floor slab at the map edge (see _door_outline).
+const BAR_W := 1041.0
+const BAR_H := 960.0
+const BAR_TEXTURE := "res://assets/Sprites/Floor Types/Bar.png"
+const BAR_PLAY := Rect2(45.0, 72.0, 954.0, 841.0) # floor slab (30,57)-(1014,928), inset
+const BAR_COUNTER := Vector2(519.0, 479.0) # centre of the oval counter ring
+const BAR_SCREEN := Vector2(163.0, 106.0)  # the blue screen, top-left
+const BAR_DOOR_TOP := Rect2(451.0, 0.0, 138.0, 57.0)
+const BAR_DOOR_BOTTOM := Rect2(451.0, 928.0, 138.0, 32.0)
+const BAR_DOOR_LEFT := Rect2(0.0, 419.0, 30.0, 122.0)
+const BAR_DOOR_RIGHT := Rect2(1014.0, 419.0, 27.0, 122.0)
 # Starting room: the "Holding Bay" art (1041x960) drawn at MAP_SCALE like the hallways, so its
 # pixel density matches the player sprite and the room comes out 2082x1920 — twice the width of a
 # 1040-wide hallway room. Bigger than the view on both axes, so the camera scrolls to follow.
@@ -46,6 +63,29 @@ const CONTROL_TEXTURE := "res://assets/Sprites/Floor Types/Control Room.png"
 const CONTROL_CENTER := Vector2(519.5, 479.5) # measured from the art
 const CONTROL_RADIUS := 466.0                 # ...as is the floor circle's radius
 const CONTROL_WALL_SEGMENTS := 40             # ring resolution; segments overlap slightly
+# "Cockpit": hallway-convention art (780x240 drawn at 2x = 1560x480), so it's the same height as a
+# hallway but half again as wide, and the camera scrolls horizontally. Its doors are NOT centred on
+# each edge the way every other layout's are, so it carries explicit door rects. No RIGHT door —
+# that edge is the windscreen. All rects are world units (measured art coordinates x2).
+const COCKPIT_W := 1560.0
+const COCKPIT_H := 480.0
+const COCKPIT_TEXTURE := "res://assets/Sprites/Floor Types/Cockpit.png"
+const COCKPIT_PLAY := Rect2(110.0, 60.0, 1350.0, 360.0)
+const COCKPIT_DOOR_TOP := Rect2(446.0, 0.0, 134.0, 44.0)     # art x223..290
+const COCKPIT_DOOR_BOTTOM := Rect2(448.0, 436.0, 134.0, 44.0) # art x224..291
+const COCKPIT_DOOR_LEFT := Rect2(0.0, 172.0, 44.0, 134.0)     # art y86..153
+# "Docking Bay": 1041x960 drawn 1:1, animated (26 frames of a ship crossing the window). Only the
+# lower slab is walkable — the top half is the window. Doors are LEFT/RIGHT/BOTTOM (no top door,
+# the window is there), each a rectangle jutting out of the slab's edge. Raw art coordinates.
+const DOCK_W := 1041.0
+const DOCK_H := 960.0
+const DOCK_TEXTURE := "res://assets/Sprites/Floor Types/Docking Bay f%d.png"
+const DOCK_FRAMES := 26
+const DOCK_FRAME_TIME := 0.1
+const DOCK_PLAY := Rect2(75.0, 540.0, 890.0, 395.0) # floor slab (60,526)-(980,949), inset
+const DOCK_DOOR_LEFT := Rect2(29.0, 695.0, 31.0, 90.0)
+const DOCK_DOOR_RIGHT := Rect2(980.0, 693.0, 27.0, 112.0)
+const DOCK_DOOR_BOTTOM := Rect2(433.0, 935.0, 122.0, 25.0)
 
 var _kind := "combat"
 var _room_w := COMBAT_W
@@ -72,12 +112,6 @@ const DOOR_LOCKED_COLOR := Color(0.95, 0.25, 0.20, 0.9) # red — locked until t
 const DOOR_OPEN_COLOR   := Color(0.25, 0.95, 0.55, 0.9) # green — an unlocked exit
 const DOOR_BACK_COLOR   := Color(0.30, 0.65, 1.00, 0.9) # blue — the door the player came in through
 
-# Bar placeholder palette (low-detail; a PNG will replace this later).
-const BAR_FLOOR_COLOR   := Color(0.14, 0.12, 0.20)
-const BAR_WALL_COLOR    := Color(0.07, 0.06, 0.11)
-const BAR_COUNTER_COLOR := Color(0.30, 0.22, 0.14)
-const BAR_COUNTER_TOP   := Color(0.42, 0.31, 0.19)
-
 var player_spawn_pos: Vector2
 var enemy_spawn_positions: Array
 var door_sides: Array = []  # sides with visible doors — set by world.gd via set_doors
@@ -95,7 +129,7 @@ func configure(kind: String) -> void:
 	if kind == "bar":
 		_room_w = BAR_W
 		_room_h = BAR_H
-		_play = Rect2(90.0, 150.0, BAR_W - 180.0, 210.0) # wide walkable band with wall margins
+		_play = BAR_PLAY
 	elif kind == "start":
 		# The Holding Bay: one door at the top. The walkable slab is (32,380)-(1007,922) in the art
 		# — everything above that is the corridor, which is scenery — inset so the player can't
@@ -114,19 +148,33 @@ func configure(kind: String) -> void:
 		_room_w = CONTROL_W
 		_room_h = CONTROL_H
 		_play = Rect2(120.0, 80.0, 800.0, 800.0)
+	elif kind == "cockpit":
+		_room_w = COCKPIT_W
+		_room_h = COCKPIT_H
+		_play = COCKPIT_PLAY
+	elif kind == "docking":
+		# Only the lower slab is walkable; the window above it is scenery.
+		_room_w = DOCK_W
+		_room_h = DOCK_H
+		_play = DOCK_PLAY
 	else:
 		_room_w = COMBAT_W
 		_room_h = COMBAT_H
 		_play = Rect2(120.0, 102.0, 800.0, 276.0)
 	_setup_map_sprite()
-	# Hallway and Holding Bay art are drawn at MAP_SCALE (2x), matching the player sprite's own 2x
-	# so pixel density lines up. The Control Room is the one drawn 1:1.
-	_map_sprite.scale = Vector2.ONE if kind == "control" else Vector2(MAP_SCALE, MAP_SCALE)
-	_map_sprite.visible = kind != "bar" # only the bar is still a code-drawn placeholder
-	_set_lobby_animation(kind == "start")
+	# Hallway, Cockpit and Holding Bay art are drawn at MAP_SCALE (2x); Control Room, Bar and
+	# Docking Bay are drawn 1:1, so those rooms are exactly their art's pixel dimensions.
+	var one_to_one := kind == "control" or kind == "bar" or kind == "docking"
+	_map_sprite.scale = Vector2.ONE if one_to_one else Vector2(MAP_SCALE, MAP_SCALE)
+	_map_sprite.visible = true # every layout has real art now
+	_set_map_animation(kind)
 	if kind == "control":
 		_map_sprite.texture = load(CONTROL_TEXTURE)
-	elif kind != "start":
+	elif kind == "cockpit":
+		_map_sprite.texture = load(COCKPIT_TEXTURE)
+	elif kind == "bar":
+		_map_sprite.texture = load(BAR_TEXTURE)
+	elif kind != "start" and kind != "docking": # those two are set by _set_map_animation
 		# Reset to a hallway texture so a combat room entered straight after a Control Room never
 		# briefly shows the round art; world.gd's set_map_texture then picks the matching variant.
 		_map_sprite.texture = load(MAP_TEXTURE_PATH)
@@ -147,40 +195,59 @@ func configure(kind: String) -> void:
 		enemy_spawn_positions.append(Vector2(x, cy))
 	queue_redraw()
 
-# ── Holding Bay frame loop ───────────────────────────────────────────────────────────────────
-# The lobby art is a 6-frame animation (extracted from the source GIF). Frames are loaded once and
-# cycled by a Timer rather than an AnimatedSprite2D, so the rest of the room code keeps treating
-# _map_sprite as a plain Sprite2D with a swappable texture (set_map_texture, scale, z_index...).
-var _lobby_frames: Array[Texture2D] = []
-var _lobby_frame := 0
-var _lobby_timer: Timer = null
+# ── Animated room art ────────────────────────────────────────────────────────────────────────
+# Two rooms are frame animations extracted from source GIFs: the Holding Bay (6 frames, a sparkle
+# on the console) and the Docking Bay (26 frames, a ship crossing the window). Frames are loaded
+# once per room and cycled by a Timer rather than an AnimatedSprite2D, so the rest of the room code
+# keeps treating _map_sprite as a plain Sprite2D with a swappable texture (set_map_texture, scale,
+# z_index...). _anim_kind records which room the loaded frames belong to, so switching rooms
+# reloads instead of playing the previous room's frames.
+var _anim_frames: Array[Texture2D] = []
+var _anim_kind := ""
+var _anim_index := 0
+var _anim_timer: Timer = null
 
-func _set_lobby_animation(on: bool) -> void:
-	if not on:
-		if _lobby_timer != null:
-			_lobby_timer.stop()
+# Starts (or restarts) the frame loop for `kind`, or stops it when that kind isn't animated.
+func _set_map_animation(kind: String) -> void:
+	var path_fmt := ""
+	var count := 0
+	var frame_time := 0.1
+	if kind == "start":
+		path_fmt = LOBBY_TEXTURE
+		count = LOBBY_FRAMES
+		frame_time = LOBBY_FRAME_TIME
+	elif kind == "docking":
+		path_fmt = DOCK_TEXTURE
+		count = DOCK_FRAMES
+		frame_time = DOCK_FRAME_TIME
+	else:
+		if _anim_timer != null:
+			_anim_timer.stop()
+		_anim_kind = ""
 		return
-	if _lobby_frames.is_empty():
-		for i in range(LOBBY_FRAMES):
-			var t: Texture2D = load(LOBBY_TEXTURE % i)
+	if _anim_kind != kind:
+		_anim_frames.clear()
+		for i in range(count):
+			var t: Texture2D = load(path_fmt % i)
 			if t != null:
-				_lobby_frames.append(t)
-	if _lobby_frames.is_empty():
+				_anim_frames.append(t)
+		_anim_kind = kind
+	if _anim_frames.is_empty():
 		return # art missing — leave whatever texture is set rather than blanking the room
-	_lobby_frame = 0
-	_map_sprite.texture = _lobby_frames[0]
-	if _lobby_timer == null:
-		_lobby_timer = Timer.new()
-		_lobby_timer.wait_time = LOBBY_FRAME_TIME
-		_lobby_timer.timeout.connect(_advance_lobby_frame)
-		add_child(_lobby_timer)
-	_lobby_timer.start()
+	_anim_index = 0
+	_map_sprite.texture = _anim_frames[0]
+	if _anim_timer == null:
+		_anim_timer = Timer.new()
+		_anim_timer.timeout.connect(_advance_map_frame)
+		add_child(_anim_timer)
+	_anim_timer.wait_time = frame_time
+	_anim_timer.start()
 
-func _advance_lobby_frame() -> void:
-	if _lobby_frames.is_empty() or _kind != "start":
+func _advance_map_frame() -> void:
+	if _anim_frames.is_empty() or _anim_kind != _kind:
 		return
-	_lobby_frame = (_lobby_frame + 1) % _lobby_frames.size()
-	_map_sprite.texture = _lobby_frames[_lobby_frame]
+	_anim_index = (_anim_index + 1) % _anim_frames.size()
+	_map_sprite.texture = _anim_frames[_anim_index]
 
 func _setup_map_sprite() -> void:
 	if _map_sprite == null:
@@ -237,6 +304,14 @@ func _process(_delta: float) -> void:
 func door_zone(side: int) -> Rect2:
 	# Holding Bay: the door is at the FAR top of the corridor, not where it meets the slab, so the
 	# trigger band sits just below the doorway rather than being derived from _play.
+	# Cockpit's doors sit where the art puts them, not centred on each edge, so its trigger bands
+	# are derived from the explicit door rects (grown inward so the player meets them at the wall).
+	if _kind == "cockpit":
+		match side:
+			SIDE_TOP:    return Rect2(COCKPIT_DOOR_TOP.position.x, 0.0, COCKPIT_DOOR_TOP.size.x, COCKPIT_PLAY.position.y + 20.0)
+			SIDE_BOTTOM: return Rect2(COCKPIT_DOOR_BOTTOM.position.x, COCKPIT_PLAY.end.y - 20.0, COCKPIT_DOOR_BOTTOM.size.x, COCKPIT_H - COCKPIT_PLAY.end.y + 20.0)
+			SIDE_LEFT:   return Rect2(0.0, COCKPIT_DOOR_LEFT.position.y, COCKPIT_PLAY.position.x + 20.0, COCKPIT_DOOR_LEFT.size.y)
+		return Rect2() # no right door — that edge is the windscreen
 	if _kind == "start" and side == SIDE_TOP:
 		# Deep band (down the top of the corridor) so it fires well before the player reaches the
 		# cap wall — the transition should never feel like walking into a dead end.
@@ -272,6 +347,33 @@ func _door_outline(side: int) -> PackedVector2Array:
 			SIDE_LEFT:   return PackedVector2Array([Vector2(0,428),   Vector2(59,428),  Vector2(59,532),  Vector2(0,532),   Vector2(0,428)])
 			SIDE_RIGHT:  return PackedVector2Array([Vector2(1041,431),Vector2(981,431), Vector2(981,529), Vector2(1041,529),Vector2(1041,431)])
 		return PackedVector2Array()
+	# Cockpit: explicit door rects (see door_zone) — they aren't centred on their edges.
+	if _kind == "cockpit":
+		var cr := Rect2()
+		match side:
+			SIDE_TOP:    cr = COCKPIT_DOOR_TOP
+			SIDE_BOTTOM: cr = COCKPIT_DOOR_BOTTOM
+			SIDE_LEFT:   cr = COCKPIT_DOOR_LEFT
+			_:           return PackedVector2Array()
+		return PackedVector2Array([cr.position, Vector2(cr.end.x, cr.position.y), cr.end, Vector2(cr.position.x, cr.end.y), cr.position])
+	# Docking Bay: the three rectangles jutting out of the slab's edge (no top door — window there).
+	if _kind == "docking":
+		var dr := Rect2()
+		match side:
+			SIDE_LEFT:   dr = DOCK_DOOR_LEFT
+			SIDE_RIGHT:  dr = DOCK_DOOR_RIGHT
+			SIDE_BOTTOM: dr = DOCK_DOOR_BOTTOM
+			_:           return PackedVector2Array()
+		return PackedVector2Array([dr.position, Vector2(dr.end.x, dr.position.y), dr.end, Vector2(dr.position.x, dr.end.y), dr.position])
+	# Bar: the four rectangles jutting out of the floor slab, one per edge.
+	if _kind == "bar":
+		var br := Rect2()
+		match side:
+			SIDE_TOP:    br = BAR_DOOR_TOP
+			SIDE_BOTTOM: br = BAR_DOOR_BOTTOM
+			SIDE_LEFT:   br = BAR_DOOR_LEFT
+			SIDE_RIGHT:  br = BAR_DOOR_RIGHT
+		return PackedVector2Array([br.position, Vector2(br.end.x, br.position.y), br.end, Vector2(br.position.x, br.end.y), br.position])
 	# Holding Bay: one door, drawn around the dark mouth at the far top end of the corridor.
 	if _kind == "start":
 		if side == SIDE_TOP:
@@ -285,24 +387,10 @@ func _door_outline(side: int) -> PackedVector2Array:
 		SIDE_RIGHT:  return PackedVector2Array([Vector2(1040,172),Vector2(1040,306),Vector2(926,284), Vector2(926,194), Vector2(1040,172)])
 	return PackedVector2Array()
 
-# Simple rectangular door marker at the play-area edge (used for the bar's drawn doors).
-func _bar_door_rect(side: int) -> Rect2:
-	var c := _play.get_center()
-	match side:
-		SIDE_TOP:    return Rect2(c.x - DOOR_W / 2.0, _play.position.y - 18.0, DOOR_W, 18.0)
-		SIDE_BOTTOM: return Rect2(c.x - DOOR_W / 2.0, _play.end.y, DOOR_W, 18.0)
-		SIDE_LEFT:   return Rect2(_play.position.x - 18.0, c.y - DOOR_W / 2.0, 18.0, DOOR_W)
-		SIDE_RIGHT:  return Rect2(_play.end.x, c.y - DOOR_W / 2.0, 18.0, DOOR_W)
-	return Rect2()
-
 func _draw() -> void:
-	if _kind == "bar":
-		_draw_bar()
-		return
-	# The lobby used to be a code-drawn placeholder; it now has real art (Holding Bay), so drawing
-	# that background here would paint straight over the sprite (which sits at z_index -10). Only
-	# the door marker is drawn now, exactly like a combat room.
-	# Combat: the floor/walls come from the Hallway art; only the door status outlines are drawn.
+	# Every layout is textured now — the bar and lobby placeholders were replaced by real art. A
+	# code-drawn background here would paint straight over the sprite (z_index -10), so _draw only
+	# adds the door status outlines on top of whatever art the room is showing.
 	for side in door_sides:
 		var outline := _door_outline(side)
 		if outline.size() < 2:
@@ -318,25 +406,6 @@ func _draw() -> void:
 			else:
 				frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
 		draw_polyline(outline, frame_col, width)
-
-# Low-detail placeholder for the bar (a PNG will replace this): dark walls, a lighter floor band, a
-# bar counter across the middle, and coloured door markers on the edges.
-func _draw_bar() -> void:
-	draw_rect(Rect2(0.0, 0.0, _room_w, _room_h), BAR_WALL_COLOR)
-	draw_rect(_play, BAR_FLOOR_COLOR)
-	# Bar counter in the middle — a long rectangle with a lighter top edge (the bartender stands behind).
-	var c := _play.get_center()
-	var counter := Rect2(c.x - 180.0, c.y - 8.0, 360.0, 46.0)
-	draw_rect(counter, BAR_COUNTER_COLOR)
-	draw_rect(Rect2(counter.position.x, counter.position.y, counter.size.x, 8.0), BAR_COUNTER_TOP)
-	# A few stools in front of the counter.
-	for i in range(5):
-		var sx := counter.position.x + 40.0 + i * 70.0
-		draw_circle(Vector2(sx, counter.end.y + 26.0), 9.0, BAR_COUNTER_TOP)
-	# Door markers (green — bar doors are always open).
-	for side in door_sides:
-		var col := DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
-		draw_rect(_bar_door_rect(side), col)
 
 # Four walls hugging the walkable floor.
 func _build_walls() -> void:

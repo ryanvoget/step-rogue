@@ -13,8 +13,8 @@ const HEAL_DISPENSER_SCENE := preload("res://scenes/heal_dispenser/heal_dispense
 const SHOP_NPC_SCENE   := preload("res://scenes/shop_npc/shop_npc.tscn")
 const BARTENDER_SCENE  := preload("res://scenes/bartender/bartender.tscn")
 const BAR_PATRON_SCENE := preload("res://scenes/bar_patron/bar_patron.tscn")
-const SLOT_MACHINE_SCENE := preload("res://scenes/slot_machine/slot_machine.tscn")
 const DASH_PICKUP_SCENE := preload("res://scenes/dash_pickup/dash_pickup.tscn")
+const COIN_SCENE := preload("res://scenes/coin/coin.tscn") # re-dropping gold left in a room
 
 # Grid directions per door side — indices match room.gd's SIDE_TOP/BOTTOM/LEFT/RIGHT (0/1/2/3).
 const SIDE_OFFSETS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
@@ -29,8 +29,16 @@ const HALLWAY_VARIANTS := [
 	{"tex": "res://assets/Sprites/Floor Types/Hallway v5.png", "doors": [0, 2, 3]},    # top, left, right
 	{"tex": "res://assets/Sprites/Floor Types/Hallway v6.png", "doors": [0, 1, 2]},    # top, bottom, left
 ]
-# Share of combat rooms that use the round Control Room layout instead of a hallway variant.
-const CONTROL_ROOM_CHANCE := 0.5
+# Combat rooms pick between the hallway variants and these whole-room layouts, evenly. Each entry
+# lists the door sides its art actually has (0=top,1=bottom,2=left,3=right) — a layout is only
+# eligible if it has a door on the side the player entered from, exactly like HALLWAY_VARIANTS.
+# "hallway" is the sentinel for "use _pick_variant to choose one of the hallway PNGs".
+const COMBAT_LAYOUTS := [
+	{"kind": "hallway", "doors": [0, 1, 2, 3]}, # per-variant door sets are checked in _pick_variant
+	{"kind": "control", "doors": [0, 1, 2, 3]},
+	{"kind": "cockpit", "doors": [0, 1, 2]},    # no right door — that edge is the windscreen
+	{"kind": "docking", "doors": [1, 2, 3]},    # no top door — that edge is the window
+]
 const GRENADE_CHARGES := 5 # throwable grenades get this many uses per run instead of one-shot
 const TURRET_CHARGES := 5   # placeable turrets get this many deploys per run instead of one-shot
 const MINE_CHARGES := 5     # detonator mines get this many uses per run instead of one-shot
@@ -47,7 +55,16 @@ const BAR_BAND_MIN := 10
 const BAR_BAND_MAX := 11
 const BAR_TALK_RANGE := 80.0
 const BAR_DRINKS := [[50, 15], [100, 30], [150, 50]] # [cost, HP restored]
-const SLOT_COST := 100 # credits to spin the bar slot machine for a random (stacking) artifact
+# Bar artifact terminal (the blue screen in the art, top-left). Pay once to have it offer
+# TERMINAL_CHOICES artifacts rolled at the normal rarity odds, then pick whichever one you want.
+# This replaced the slot machine, which rolled a single artifact you had no say over.
+const TERMINAL_COST := 80
+const TERMINAL_CHOICES := 3
+const BAR_PATRON_COUNT := 6
+# These are in the bar's own 1041x960 space (its art is drawn 1:1, not at 2x like the hallways).
+const BAR_PATRON_SPACING := 75.0      # keep patrons from overlapping each other
+const BAR_COUNTER_CLEARANCE := 160.0  # ...and out of the counter ring
+const BAR_SCREEN_CLEARANCE := 130.0   # ...and away from the terminal so they don't block it
 const GOLD_PER_UNUSED_POINT := 50 # each loadout point NOT spent converts to this much starting gold
 const SHOP_HEAL_COST := 100
 const SHOP_CRATE_COST := 100
@@ -71,8 +88,10 @@ var _shop_npc_active := false     # true while the player is standing in talk ra
                                   # can be reopened by stepping away and back after Leaving
 var _bartender: Node2D = null     # the bartender in the current room (bar rooms only)
 var _bartender_active := false    # proximity debounce for the drink dialog (same idea as shop)
-var _slot_machine: Node2D = null  # the artifact slot machine in the current bar room
-var _slot_active := false         # proximity debounce for the slot-machine dialog
+var _bar_screen_pos := Vector2.ZERO # artifact terminal position (painted into the bar art)
+var _terminal_active := false       # proximity debounce for the terminal dialog
+var _terminal_offer: Array = []     # the artifacts currently on offer (empty until paid for)
+var _terminal_selected := -1        # which offer the player has tapped (shows its description)
 var _loadout_bonus := 0           # starting gold from unused loadout points (see _grant_loadout_bonus)
 var _unused_points := 0
 var _camera: Camera2D = null      # fixed for combat rooms, scrolls with the player for bar rooms
@@ -794,7 +813,9 @@ func _start_final_boss_phase2() -> void:
 
 # A phase-2 boss split in two: spawn its twin at half HP + half size, at the same halving depth.
 func _on_boss_split(pos: Vector2, hp: int, radius: float, generation: int) -> void:
-	if _enemies.get_child_count() >= FINAL_BOSS_MAX_COUNT:
+	# Count actual enemies, not _enemies' children — dropped coins are parented there too (see
+	# enemy_basic.gd's _drop_coins), and loose gold on the floor must not stop the boss splitting.
+	if get_tree().get_nodes_in_group("enemies").size() >= FINAL_BOSS_MAX_COUNT:
 		return
 	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
 	e.configure_type("BossF")
@@ -913,26 +934,36 @@ func _spawn_shop_npc() -> void:
 # wide floor. All room-scoped (added to _props, freed on the next transition).
 func _spawn_bar() -> void:
 	var r: Rect2 = GameManager.play_rect
-	var center := r.get_center()
 	var bartender: Node2D = BARTENDER_SCENE.instantiate()
-	bartender.global_position = Vector2(center.x, center.y - 34.0) # behind the counter
+	bartender.global_position = _room.BAR_COUNTER # inside the oval counter ring, as drawn
 	_props.add_child(bartender)
 	_bartender = bartender
 	_bartender_active = false
-	# Slot machine off to one side of the bar (left of the counter).
-	var slot: Node2D = SLOT_MACHINE_SCENE.instantiate()
-	slot.global_position = Vector2(r.position.x + r.size.x * 0.28, center.y - 6.0)
-	_props.add_child(slot)
-	_slot_machine = slot
-	_slot_active = false
-	# Scatter a handful of patrons along the floor, well away from the counter/bartender.
-	var spots := [0.12, 0.24, 0.72, 0.86, 0.34, 0.64]
-	for i in range(spots.size()):
-		var fx: float = spots[i]
-		var x: float = r.position.x + r.size.x * fx
-		var y: float = r.position.y + r.size.y * (0.35 + 0.45 * float(i % 2))
+	# The artifact terminal is the blue screen painted into the art (top-left), so there's no prop
+	# to spawn — just the position the proximity check uses. (The old slot-machine prop is gone.)
+	_bar_screen_pos = _room.BAR_SCREEN
+	_terminal_active = false
+	# Scatter patrons at random spots on the floor, keeping clear of the counter ring, the screen,
+	# and each other so nobody spawns standing inside the bartender.
+	var placed: Array[Vector2] = []
+	var tries := 0
+	while placed.size() < BAR_PATRON_COUNT and tries < 200:
+		tries += 1
+		var p := Vector2(randf_range(r.position.x + 45.0, r.end.x - 45.0), randf_range(r.position.y + 45.0, r.end.y - 45.0))
+		if p.distance_to(_room.BAR_COUNTER) < BAR_COUNTER_CLEARANCE:
+			continue
+		if p.distance_to(_room.BAR_SCREEN) < BAR_SCREEN_CLEARANCE:
+			continue
+		var clash := false
+		for q in placed:
+			if p.distance_to(q) < BAR_PATRON_SPACING:
+				clash = true
+				break
+		if clash:
+			continue
+		placed.append(p)
 		var patron: Node2D = BAR_PATRON_SCENE.instantiate()
-		patron.global_position = Vector2(x, y)
+		patron.global_position = p
 		_props.add_child(patron)
 
 # Bar drink dialog: three coin-for-HP options (see BAR_DRINKS), rebuilt after each purchase so the
@@ -988,10 +1019,11 @@ func _buy_drink(cost: int, hp: int) -> void:
 	_player.heal(hp)
 	_show_bar() # refresh balance/enabled states
 
-# Slot machine dialog: spend SLOT_COST to roll a random artifact whose effect stacks on top of any
-# already active this run (see GameManager.run_artifacts / ItemRegistry.artifact_num). `won` shows
-# the result of the last spin so the player sees what they got before spinning again.
-func _show_slots(won: Dictionary = {}) -> void:
+# Artifact terminal (the blue screen in the bar art). One payment of TERMINAL_COST rolls
+# TERMINAL_CHOICES artifacts at the normal rarity odds; the player then picks whichever they want
+# rather than being handed a random one. Tapping an offer selects it and reveals its description;
+# a second button actually takes it. The offer persists until taken or the player leaves.
+func _show_terminal() -> void:
 	if _reward_popup != null and is_instance_valid(_reward_popup):
 		_reward_popup.queue_free()
 		_reward_popup = null
@@ -1000,7 +1032,7 @@ func _show_slots(won: Dictionary = {}) -> void:
 	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
 
 	var title := Label.new()
-	title.text = "🎰  Artifact Slots"
+	title.text = "🖥️  Artifact Terminal"
 	title.add_theme_font_size_override("font_size", 19)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
@@ -1011,21 +1043,45 @@ func _show_slots(won: Dictionary = {}) -> void:
 	coins_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(coins_lbl)
 
-	if not won.is_empty():
-		var got := Label.new()
-		got.text = "🏺  %s\n%s" % [won.get("name", ""), won.get("effect", "")]
-		got.add_theme_font_size_override("font_size", 14)
-		got.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		got.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		got.add_theme_color_override("font_color", _rarity_text_color(won.get("rarity", "")))
-		vbox.add_child(got)
+	if _terminal_offer.is_empty():
+		# Nothing on offer yet — pay to have the terminal roll a set.
+		var blurb := Label.new()
+		blurb.text = "Scan for artifacts and choose one of %d." % TERMINAL_CHOICES
+		blurb.add_theme_font_size_override("font_size", 13)
+		blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		blurb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(blurb)
 
-	var spin := Button.new()
-	spin.text = "Spin for an Artifact — %d🪙" % SLOT_COST
-	spin.custom_minimum_size = Vector2(0, 48)
-	spin.disabled = GameManager.coins < SLOT_COST
-	spin.pressed.connect(_spin_slots)
-	vbox.add_child(spin)
+		var scan := Button.new()
+		scan.text = "Scan — %d🪙" % TERMINAL_COST
+		scan.custom_minimum_size = Vector2(0, 48)
+		scan.disabled = GameManager.coins < TERMINAL_COST
+		scan.pressed.connect(_buy_terminal_scan)
+		vbox.add_child(scan)
+	else:
+		for i in range(_terminal_offer.size()):
+			var a: Dictionary = _terminal_offer[i]
+			var btn := Button.new()
+			var mark := "▸ " if i == _terminal_selected else ""
+			btn.text = "%s%s  (%s)" % [mark, a.get("name", ""), str(a.get("rarity", "")).capitalize()]
+			btn.custom_minimum_size = Vector2(0, 44)
+			btn.add_theme_color_override("font_color", _rarity_text_color(a.get("rarity", "")))
+			btn.pressed.connect(_select_terminal_offer.bind(i))
+			vbox.add_child(btn)
+		if _terminal_selected >= 0 and _terminal_selected < _terminal_offer.size():
+			var sel: Dictionary = _terminal_offer[_terminal_selected]
+			var desc := Label.new()
+			desc.text = str(sel.get("effect", ""))
+			desc.add_theme_font_size_override("font_size", 13)
+			desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			vbox.add_child(desc)
+
+			var take := Button.new()
+			take.text = "Take %s" % sel.get("name", "")
+			take.custom_minimum_size = Vector2(0, 48)
+			take.pressed.connect(_take_terminal_offer)
+			vbox.add_child(take)
 
 	var leave_btn := Button.new()
 	leave_btn.text = "Leave"
@@ -1033,23 +1089,47 @@ func _show_slots(won: Dictionary = {}) -> void:
 	leave_btn.pressed.connect(_close_reward_popup)
 	vbox.add_child(leave_btn)
 
+# Pays for a scan and rolls the offer. Duplicates are re-rolled a few times so the three choices
+# are usually distinct, but the per-artifact odds are still ItemRegistry.roll_artifact's.
+func _buy_terminal_scan() -> void:
+	if GameManager.coins < TERMINAL_COST or not _terminal_offer.is_empty():
+		return
+	GameManager.spend_coins(TERMINAL_COST)
+	var offer: Array = []
+	var guard := 0 # caps the re-roll loop so a small artifact pool can't spin forever
+	while offer.size() < TERMINAL_CHOICES and guard < 60:
+		guard += 1
+		var a: Dictionary = ItemRegistry.roll_artifact()
+		var dup := false
+		for o in offer:
+			if o.get("name", "") == a.get("name", ""):
+				dup = true
+				break
+		if not dup:
+			offer.append(a)
+	_terminal_offer = offer
+	_terminal_selected = -1
+	_show_terminal()
+
+func _select_terminal_offer(index: int) -> void:
+	_terminal_selected = index
+	_show_terminal() # rebuild so the description and Take button appear
+
+func _take_terminal_offer() -> void:
+	if _terminal_selected < 0 or _terminal_selected >= _terminal_offer.size():
+		return
+	var chosen: Dictionary = _terminal_offer[_terminal_selected]
+	_terminal_offer = []
+	_terminal_selected = -1
+	_award_reopen = true # returns to the terminal so the player can scan again
+	_award_artifact(chosen)
+
 const RARITY_TEXT := {
 	"common": Color(0.70, 0.70, 0.75), "uncommon": Color(0.35, 0.90, 0.45),
 	"rare": Color(0.30, 0.55, 1.00), "epic": Color(0.80, 0.40, 1.00), "legendary": Color(1.00, 0.80, 0.10),
 }
 func _rarity_text_color(rarity: String) -> Color:
 	return RARITY_TEXT.get(rarity, Color(1, 1, 1))
-
-func _spin_slots() -> void:
-	# _spinning guards against a double-fired tap deducting twice / stacking two reels (the orphaned
-	# reel was the "stuck popup" bug — its tween callback freed the wrong popup).
-	if _spinning or GameManager.coins < SLOT_COST:
-		return
-	_spinning = true
-	GameManager.spend_coins(SLOT_COST)
-	_award_reopen = true # a bar spin returns to the machine afterward
-	var artifact: Dictionary = ItemRegistry.roll_artifact()
-	_show_artifact_spin(artifact) # crate reel; the add/replace happens once it lands
 
 # Awards a rolled artifact/relic: stacks it (up to ItemRegistry.MAX_ARTIFACTS) or opens the replace
 # dialog if at the cap. _award_reopen decides whether to return to the slot machine afterward (true
@@ -1062,81 +1142,9 @@ func _award_artifact(artifact: Dictionary) -> void:
 	GameManager.run_artifacts.append(artifact)
 	_apply_active_artifacts()
 	if _award_reopen:
-		_show_slots(artifact) # show what was won, ready to spin again
+		_show_terminal() # back to the terminal, ready to scan again
 	else:
 		_close_reward_popup()
-
-# Crate-style spin reel for a rolled artifact (same reel as the shop crate; fillers are random
-# artifacts, landing on `artifact`). Hold the screen to fast-forward at 2x — see _input.
-func _show_artifact_spin(artifact: Dictionary) -> void:
-	if _reward_popup != null and is_instance_valid(_reward_popup):
-		_reward_popup.queue_free() # never leave the previous popup orphaned behind a new one
-		_reward_popup = null
-	GameManager.ui_popup_open = true
-	_reward_popup = _build_popup_shell()
-	var vbox: VBoxContainer = _reward_popup.get_meta("vbox")
-
-	var title := Label.new()
-	title.text = "🎰  Spinning..."
-	title.add_theme_font_size_override("font_size", 17)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
-
-	var stage := Control.new()
-	stage.custom_minimum_size = Vector2(0, CRATE_CARD_H)
-	stage.clip_contents = true
-	vbox.add_child(stage)
-
-	var track := HBoxContainer.new()
-	track.add_theme_constant_override("separation", CRATE_CARD_GAP)
-	stage.add_child(track)
-	for _i in range(CRATE_WINNER_IDX):
-		track.add_child(_make_crate_card(ItemRegistry.random_artifact()))
-	track.add_child(_make_crate_card(artifact))
-	for _i in range(8):
-		track.add_child(_make_crate_card(ItemRegistry.random_artifact()))
-
-	var marker := ColorRect.new()
-	marker.color = Color(1.0, 0.85, 0.2, 0.9)
-	marker.anchor_left = 0.5
-	marker.anchor_right = 0.5
-	marker.offset_left = -1.5
-	marker.offset_right = 1.5
-	marker.offset_top = 0.0
-	marker.offset_bottom = CRATE_CARD_H
-	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(marker)
-
-	var hint := Label.new()
-	hint.text = "Hold to fast-forward ⏩"
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.add_theme_color_override("font_color", Color(0.6, 0.63, 0.7))
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(hint)
-
-	await get_tree().process_frame
-	if _reward_popup == null or not is_instance_valid(_reward_popup):
-		return
-	var vw := stage.size.x
-	var slot := CRATE_CARD_W + CRATE_CARD_GAP
-	var init_x := vw * 0.5 - slot * 0.5
-	var jitter := randf_range(-CRATE_CARD_W * 0.35, CRATE_CARD_W * 0.35)
-	var end_x := vw * 0.5 - (CRATE_WINNER_IDX * slot + CRATE_CARD_W * 0.5) + jitter
-	track.position = Vector2(init_x, 0)
-	_crate_track = track
-	_crate_stage = stage
-	_crate_last_tick = -1
-	_crate_tween = create_tween()
-	_crate_tween.tween_property(track, "position:x", end_x, 5.0) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_crate_tween.tween_callback(func():
-		_crate_track = null
-		_crate_tween = null
-		_spinning = false
-		_show_ff_watermark(false)
-		_close_reward_popup()
-		_award_artifact(artifact)
-	)
 
 # Re-applies the effects that are baked in at equip time (weapon damage/fire-rate/knockback, bonus
 # max HP) after the active-artifact set changes. The rest (regen, shop cost, invincibility,
@@ -1181,7 +1189,7 @@ func _show_artifact_replace(new_artifact: Dictionary) -> void:
 	var discard := Button.new()
 	discard.text = "Discard new artifact"
 	discard.custom_minimum_size = Vector2(0, 44)
-	discard.pressed.connect(func(): _show_slots() if _award_reopen else _close_reward_popup())
+	discard.pressed.connect(func(): _show_terminal() if _award_reopen else _close_reward_popup())
 	vbox.add_child(discard)
 
 func _replace_artifact(index: int, new_artifact: Dictionary) -> void:
@@ -1189,7 +1197,7 @@ func _replace_artifact(index: int, new_artifact: Dictionary) -> void:
 		GameManager.run_artifacts[index] = new_artifact
 		_apply_active_artifacts()
 	if _award_reopen:
-		_show_slots(new_artifact)
+		_show_terminal()
 	else:
 		_close_reward_popup()
 
@@ -1364,16 +1372,26 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 			doors.append(entry_side) # plus the way back, wherever the player came in
 	elif kind == "start":
 		doors = [0] # single door on top (side 0) — the Holding Bay art has one door, at the top
-	elif kind == "combat" and randf() < CONTROL_ROOM_CHANCE:
-		# Half of all combat rooms are the round Control Room instead of a hallway. It's a
-		# different size/shape, so it's a room KIND (room.gd::configure) rather than another
-		# entry in HALLWAY_VARIANTS — and it has all four doors, so any entry side is fine.
-		kind = "control"
-		doors = [0, 1, 2, 3]
+	elif kind == "combat":
+		# Pick evenly among the layouts that have a door where the player came in. These are
+		# different sizes/shapes, so each is a room KIND (room.gd::configure) rather than another
+		# entry in HALLWAY_VARIANTS.
+		var eligible: Array = []
+		for l in COMBAT_LAYOUTS:
+			if entry_side == -1 or entry_side in l["doors"]:
+				eligible.append(l)
+		var pick: Dictionary = eligible[randi() % eligible.size()] if not eligible.is_empty() else COMBAT_LAYOUTS[0]
+		if pick["kind"] == "hallway":
+			var v := _pick_variant(entry_side)
+			variant = v["tex"]
+			doors = v["doors"].duplicate()
+		else:
+			kind = pick["kind"]
+			doors = pick["doors"].duplicate()
 	else:
-		var v := _pick_variant(entry_side)
-		variant = v["tex"]
-		doors = v["doors"].duplicate()
+		var v2 := _pick_variant(entry_side)
+		variant = v2["tex"]
+		doors = v2["doors"].duplicate()
 	return {"cleared": cleared, "doors": doors, "entry_side": entry_side, "number": number, "variant": variant, "kind": kind, "challenge": false, "challenge_door": -1}
 
 # Doors the player can currently walk through: none while the room is uncleared (every door,
@@ -1434,15 +1452,15 @@ func _physics_process(_delta: float) -> void:
 			return
 		elif not near_bar:
 			_bartender_active = false
-	# Slot machine: open the artifact-spin dialog when the player walks up to it.
-	if _slot_machine != null and is_instance_valid(_slot_machine):
-		var near_slot := _player.global_position.distance_to(_slot_machine.global_position) <= BAR_TALK_RANGE
-		if near_slot and not _slot_active:
-			_slot_active = true
-			_show_slots()
+	# Artifact terminal: open its dialog when the player walks up to the screen in the bar art.
+	if _bar_screen_pos != Vector2.ZERO:
+		var near_screen := _player.global_position.distance_to(_bar_screen_pos) <= BAR_TALK_RANGE
+		if near_screen and not _terminal_active:
+			_terminal_active = true
+			_show_terminal()
 			return
-		elif not near_slot:
-			_slot_active = false
+		elif not near_screen:
+			_terminal_active = false
 	if GameManager.ui_popup_open:
 		return
 	for side in _active_door_sides():
@@ -1496,6 +1514,10 @@ func _go_through_door(side: int) -> void:
 	# otherwise the green button would be stuck in the PLACING state with nothing to finish.
 	if _active_barrier != null and is_instance_valid(_active_barrier):
 		_active_barrier.stop_and_finalize()
+	# Stash any gold still lying on the floor into THIS room's state before the container is
+	# cleared (_current_pos is still the room being left — it only moves further down). Walking
+	# back in re-drops it, so leaving a room by accident never costs the player their gold.
+	_stash_dropped_coins()
 	for c in _props.get_children():
 		c.queue_free()
 	for c in _enemies.get_children():
@@ -1505,8 +1527,10 @@ func _go_through_door(side: int) -> void:
 	_shop_npc_active = false
 	_bartender = null
 	_bartender_active = false
-	_slot_machine = null
-	_slot_active = false
+	_bar_screen_pos = Vector2.ZERO
+	_terminal_active = false
+	_terminal_offer = []
+	_terminal_selected = -1
 	_enemies_alive = 0
 
 	# Hoverboard burns one room of its budget per room entered while mounted; auto-dismount at 0.
@@ -1544,12 +1568,54 @@ func _go_through_door(side: int) -> void:
 	_player.global_position = _room.entry_position(entry)
 	_update_camera(true) # re-snap now that the player is placed in the resized room
 	_grant_room_invincibility() # Invincible+ artifact — every room entry
+	_restore_dropped_coins()    # gold left behind last time the player was in this room
 	match st.get("kind", "combat"):
 		"shop": _spawn_shop_npc()
 		"bar":  _spawn_bar()
 		_:
 			if not st["cleared"]:
 				_spawn_enemies_for_room()
+
+# ── Uncollected gold when backtracking ──────────────────────────────────────────────────────
+# Coins are dropped as siblings of the enemy that died (enemy_basic.gd's _drop_coins), so they sit
+# in _enemies and are freed on the way out — losing any gold the player hadn't walked over yet.
+# The drop from the room just left is held here and re-created if the player turns straight back
+# around, so stepping through a door by accident costs nothing. Only the PREVIOUS room is kept:
+# walking on to a third room discards it, so gold can't be banked indefinitely.
+const NO_ROOM := Vector2i(9999, 9999) # sentinel — never a real grid position
+var _prev_room_pos := NO_ROOM   # the room being left, recorded on the way out
+var _prev_room_coins: Array = []
+var _restore_pos := NO_ROOM     # the room BEFORE that — the one a turnaround walks back into
+var _restore_coins: Array = []
+
+func _stash_dropped_coins() -> void:
+	# Hand the old stash over to the restore slot FIRST. Both steps run inside one transition:
+	# stash-on-exit would otherwise clobber the previous room's gold before restore-on-entry got
+	# to read it, so walking straight back would find the floor empty.
+	_restore_pos = _prev_room_pos
+	_restore_coins = _prev_room_coins
+	var left: Array = []
+	for c in get_tree().get_nodes_in_group("coins"):
+		if is_instance_valid(c) and not c.is_queued_for_deletion():
+			left.append({"pos": c.global_position, "value": c.value()})
+	_prev_room_pos = _current_pos
+	_prev_room_coins = left
+
+func _restore_dropped_coins() -> void:
+	if _current_pos != _restore_pos or _restore_coins.is_empty():
+		return
+	var saved: Array = _restore_coins
+	_restore_coins = [] # live again — don't double-spawn if they leave without collecting
+	# Deferred: _go_through_door queue_free()s everything in _enemies earlier in this same frame,
+	# and that flush must land before the replacements go in, or they're swept up with it.
+	for entry in saved:
+		_spawn_saved_coin.call_deferred(entry["pos"], int(entry["value"]))
+
+func _spawn_saved_coin(pos: Vector2, value: int) -> void:
+	var c: Node2D = COIN_SCENE.instantiate()
+	_enemies.add_child(c)
+	# Zero speed: it settles exactly where it was dropped rather than bursting outward again.
+	c.burst(pos, Vector2.ZERO, 0.0, value)
 
 # Invincible+ artifact: grant the room-entry invincibility window (no-op if not equipped).
 func _grant_room_invincibility() -> void:
