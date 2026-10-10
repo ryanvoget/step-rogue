@@ -100,6 +100,17 @@ const DOCK_PLAY := Rect2(75.0, 540.0, 890.0, 395.0) # floor slab (60,526)-(980,9
 const DOCK_DOOR_LEFT := Rect2(29.0, 695.0, 31.0, 90.0)
 const DOCK_DOOR_RIGHT := Rect2(980.0, 693.0, 27.0, 112.0)
 const DOCK_DOOR_BOTTOM := Rect2(433.0, 935.0, 122.0, 25.0)
+# "boss1": the first boss arena, painted as a TileMap (scenes/maps/new_map.tscn, FULL TILE SET).
+# Its layers are drawn at 2x like the hallways, so one 32px tile is 64 world units. The room is
+# the bounding box of every painted cell, shifted so it starts at (0,0); the outermost ring of
+# tiles is the wall, so _play is that box inset by one tile. Wall tiles carry their own collision
+# (full_tile_set.tres, physics layer "Walls"), which shapes anything painted inside the arena.
+# Doors are trigger zones centred on each edge, like the hallways. If nothing has been painted
+# yet, the room falls back to a plain hallway so floor 15 still works.
+const BOSS1_MAP_SCENE := "res://scenes/maps/new_map.tscn"
+const BOSS1_TILE := 64.0
+const BOSS1_DOOR_DEPTH := 64.0
+var _tile_map: Node2D = null # the instanced boss1 map while that layout is showing
 
 var _kind := "combat"
 var _room_w := COMBAT_W
@@ -140,8 +151,18 @@ func _ready() -> void:
 # Switches the room layout. Publishes bounds to GameManager, rebuilds the walls, lays out spawn
 # points, and shows/hides the hallway art. Called by world.gd on every room change.
 func configure(kind: String) -> void:
+	_clear_tile_map()
+	var map_rect := Rect2()
+	if kind == "boss1":
+		map_rect = _load_tile_map()
+		if not map_rect.has_area():
+			kind = "combat" # map not painted yet — fall back to a hallway
 	_kind = kind
-	if kind == "bar":
+	if kind == "boss1":
+		_room_w = map_rect.size.x
+		_room_h = map_rect.size.y
+		_play = Rect2(BOSS1_TILE, BOSS1_TILE, _room_w - 2.0 * BOSS1_TILE, _room_h - 2.0 * BOSS1_TILE)
+	elif kind == "bar":
 		_room_w = BAR_W
 		_room_h = BAR_H
 		_play = BAR_PLAY
@@ -181,7 +202,7 @@ func configure(kind: String) -> void:
 	# Docking Bay are drawn 1:1, so those rooms are exactly their art's pixel dimensions.
 	var one_to_one := kind == "control" or kind == "bar" or kind == "docking"
 	_map_sprite.scale = Vector2.ONE if one_to_one else Vector2(MAP_SCALE, MAP_SCALE)
-	_map_sprite.visible = true # every layout has real art now
+	_map_sprite.visible = kind != "boss1" # the tile map is boss1's art
 	_set_map_animation(kind)
 	if kind == "control":
 		_map_sprite.texture = load(CONTROL_TEXTURE)
@@ -189,7 +210,7 @@ func configure(kind: String) -> void:
 		_map_sprite.texture = load(COCKPIT_TEXTURE)
 	elif kind == "bar":
 		_map_sprite.texture = load(BAR_TEXTURE)
-	elif kind != "start" and kind != "docking": # those two are set by _set_map_animation
+	elif kind != "start" and kind != "docking" and kind != "boss1": # start/docking: _set_map_animation
 		# Reset to a hallway texture so a combat room entered straight after a Control Room never
 		# briefly shows the round art; world.gd's set_map_texture then picks the matching variant.
 		_map_sprite.texture = load(MAP_TEXTURE_PATH)
@@ -390,6 +411,16 @@ func _door_outline(side: int) -> PackedVector2Array:
 			SIDE_LEFT:   br = BAR_DOOR_LEFT
 			SIDE_RIGHT:  br = BAR_DOOR_RIGHT
 		return PackedVector2Array([br.position, Vector2(br.end.x, br.position.y), br.end, Vector2(br.position.x, br.end.y), br.position])
+	# Boss 1 tile map: a door-width rectangle in the wall ring, centred on each edge.
+	if _kind == "boss1":
+		var c := Vector2(_room_w, _room_h) * 0.5
+		var r := Rect2()
+		match side:
+			SIDE_TOP:    r = Rect2(c.x - DOOR_W / 2.0, 0.0, DOOR_W, BOSS1_DOOR_DEPTH)
+			SIDE_BOTTOM: r = Rect2(c.x - DOOR_W / 2.0, _room_h - BOSS1_DOOR_DEPTH, DOOR_W, BOSS1_DOOR_DEPTH)
+			SIDE_LEFT:   r = Rect2(0.0, c.y - DOOR_W / 2.0, BOSS1_DOOR_DEPTH, DOOR_W)
+			SIDE_RIGHT:  r = Rect2(_room_w - BOSS1_DOOR_DEPTH, c.y - DOOR_W / 2.0, BOSS1_DOOR_DEPTH, DOOR_W)
+		return PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y), r.position])
 	# Holding Bay: one door, drawn around the dark mouth at the far top end of the corridor.
 	if _kind == "start":
 		if side == SIDE_TOP:
@@ -422,6 +453,34 @@ func _draw() -> void:
 			else:
 				frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
 		draw_polyline(outline, frame_col, width)
+
+# Instances the boss1 tile map behind everything and shifts it so its painted area starts at
+# (0,0). Returns that area in world units (empty if nothing is painted or the scene is missing).
+func _load_tile_map() -> Rect2:
+	var packed: PackedScene = load(BOSS1_MAP_SCENE)
+	if packed == null:
+		return Rect2()
+	var map: Node2D = packed.instantiate()
+	var cells := Rect2i()
+	for layer in map.get_children():
+		if layer is TileMapLayer:
+			var used: Rect2i = layer.get_used_rect()
+			if used.has_area():
+				cells = used if not cells.has_area() else cells.merge(used)
+	if not cells.has_area():
+		map.free()
+		return Rect2()
+	map.position = -Vector2(cells.position) * BOSS1_TILE
+	map.z_index = -10 # behind enemies, player, doors — same as the sprite art
+	add_child(map)
+	move_child(map, 0)
+	_tile_map = map
+	return Rect2(Vector2.ZERO, Vector2(cells.size) * BOSS1_TILE)
+
+func _clear_tile_map() -> void:
+	if _tile_map != null and is_instance_valid(_tile_map):
+		_tile_map.queue_free() # its tile colliders go with it
+	_tile_map = null
 
 # Four walls hugging the walkable floor.
 func _build_walls() -> void:

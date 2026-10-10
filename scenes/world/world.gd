@@ -1602,6 +1602,7 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 	var kind := _kind_for_number(number)
 	var cleared := kind == "start" or kind == "shop" or kind == "bar"
 	var variant := ""
+	var layout := "" # room.gd layout when it differs from kind (kind still drives rewards/spawns)
 	var doors: Array = []
 	# Side indices match room.gd's SIDE_* (0=top,1=bottom,2=left,3=right).
 	if kind == "bar":
@@ -1621,6 +1622,12 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 		else:
 			kind = "cockpit"
 			doors = [0, 1, 2]
+	elif kind == "boss" and BOSS_BY_FLOOR.get(number, "") == "Boss1":
+		# The first boss fights in the tile-map arena (scenes/maps/new_map.tscn). Kind stays "boss"
+		# so the relic reward still fires; room.gd falls back to a hallway if the map is unpainted.
+		layout = "boss1"
+		variant = HALLWAY_VARIANTS[1]["tex"] # four-door hallway — fallback art if the map is empty
+		doors = [0, 1, 2, 3]
 	elif kind == "combat":
 		# Pick evenly among the layouts that have a door where the player came in. These are
 		# different sizes/shapes, so each is a room KIND (room.gd::configure) rather than another
@@ -1641,7 +1648,7 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 		var v2 := _pick_variant(entry_side)
 		variant = v2["tex"]
 		doors = v2["doors"].duplicate()
-	return {"cleared": cleared, "doors": doors, "entry_side": entry_side, "number": number, "variant": variant, "kind": kind, "challenge": false, "challenge_door": -1}
+	return {"cleared": cleared, "doors": doors, "entry_side": entry_side, "number": number, "variant": variant, "kind": kind, "layout": layout, "challenge": false, "challenge_door": -1}
 
 # Doors the player can currently walk through: none while the room is uncleared (every door,
 # including the one they came in through, stays locked until the fight is won), then all of
@@ -1658,7 +1665,8 @@ func _active_door_sides() -> Array:
 func _refresh_doors() -> void:
 	var st: Dictionary = _rooms[_current_pos]
 	_room_kind = st.get("kind", "combat")
-	_room.configure(_room_kind) # sets size, walls, bounds, and (for bar) the scrolling layout
+	var layout: String = st.get("layout", "")
+	_room.configure(layout if layout != "" else _room_kind) # sets size, walls, bounds, and (for bar) the scrolling layout
 	if st["variant"] != "":
 		_room.set_map_texture(st["variant"]) # load the art whose doors match this room
 		                                     # (bar/lobby/control have no variant — they own their art)
