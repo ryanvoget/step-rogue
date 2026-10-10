@@ -1,6 +1,7 @@
 extends Node
 
 const GLASS_BACKGROUND := preload("res://scenes/ui/glass_background.gd")
+const UI_THEME := preload("res://scenes/ui/ui_theme.gd")
 
 # Portrait viewport (480×854) for menus/UI; landscape (854×480) for the game — see
 # _change_scene_covered. The game is played with the phone held sideways (the iOS host rotates to
@@ -24,7 +25,34 @@ func go_to(scene_path: String) -> void:
 	if _is_landscape:
 		_change_scene_covered(scene_path, false)
 	else:
-		get_tree().change_scene_to_file(scene_path)
+		_change_scene_faded(scene_path)
+
+# Menu→menu swap behind a brief holo wipe: the outgoing screen dims under a cyan-tinted veil, the
+# new one fades up. Without it every navigation is a hard cut, which on a screen this dark reads
+# as a flicker. Kept short (~0.34s round trip) so it never feels like waiting.
+const FADE_OUT := 0.16
+const FADE_IN  := 0.18
+
+func _change_scene_faded(scene_path: String) -> void:
+	var tree := get_tree()
+	var veil := ColorRect.new()
+	veil.color = Color(0.016, 0.055, 0.086, 0.0)
+	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	veil.mouse_filter = Control.MOUSE_FILTER_STOP
+	var layer := CanvasLayer.new()
+	layer.layer = 200 # above everything, including HUD layers
+	layer.add_child(veil)
+	tree.root.add_child(layer)
+
+	var tw := create_tween()
+	tw.tween_property(veil, "color:a", 1.0, FADE_OUT)
+	await tw.finished
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+	var tw2 := create_tween()
+	tw2.tween_property(veil, "color:a", 0.0, FADE_IN)
+	await tw2.finished
+	layer.queue_free()
 
 # Attaches the shared glassy-futuristic backdrop behind a menu/UI screen — hides any existing
 # flat "Background" node and inserts the glass one at the back. Call from a screen's _ready.
@@ -35,6 +63,16 @@ func add_glass_background(screen: Control) -> void:
 	var bg: Control = GLASS_BACKGROUND.new()
 	screen.add_child(bg)
 	screen.move_child(bg, 0)
+	# Every menu screen calls this, so it is also the one place that can retheme them all at
+	# once. Buttons built later (pickers, overlays) style themselves via UITheme directly.
+	UI_THEME.style_all_buttons(screen, UI_THEME.CYAN)
+	_fade_screen_in(screen)
+
+# Screens fade up from black on arrival rather than snapping in.
+func _fade_screen_in(screen: Control) -> void:
+	screen.modulate.a = 0.0
+	var tw := screen.create_tween()
+	tw.tween_property(screen, "modulate:a", 1.0, 0.22)
 
 func go_to_menu() -> void:
 	go_to("res://scenes/menu/menu.tscn")

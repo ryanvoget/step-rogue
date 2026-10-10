@@ -143,7 +143,10 @@ func _init_positions() -> void:
 	_aim_center    = Vector2(vp.x * 0.87,  vp.y * 0.867)
 	_heal_center   = Vector2(vp.x * 0.328, vp.y * 0.912)
 	_deploy_center = Vector2(vp.x * 0.690, vp.y * 0.912)
-	_dash_center   = Vector2(vp.x * 0.87,  vp.y * 0.62)  # white dash button, above the fire joystick
+	# Sits well clear of the fire joystick: a tap that MISSES the dash falls through to the aim
+	# zone (x >= 0.76, y >= 0.5) and fires instead, so the gap between the dash's touch radius and
+	# the aim ring is what stops a fumbled dash from shooting. 0.62 left only ~23px of that gap.
+	_dash_center   = Vector2(vp.x * 0.87,  vp.y * 0.52)  # white dash button, above the fire joystick
 	_ready_done = true
 	_draw_node.queue_redraw()
 
@@ -477,15 +480,25 @@ func _on_draw() -> void:
 	if GameManager.dash_unlocked:
 		_draw_dash_button()
 
+const EXECUTE_GLOW := Color(1.0, 0.85, 0.15)
+
 func _draw_dash_button() -> void:
 	var ready := GameManager.dash_ready
 	var frac := clampf(GameManager.dash_cooldown_frac, 0.0, 1.0)
+	# Execute window: the button turns yellow and gains a pulsing halo, so the follow-up read is
+	# "this button does something different right now" rather than a subtle tint.
+	var exec := GameManager.execute_ready
+	var tint := EXECUTE_GLOW if exec else Color(1, 1, 1, 1)
+	if exec:
+		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * TAU * 3.0)
+		_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS * (1.45 + 0.15 * pulse),
+			Color(EXECUTE_GLOW, 0.16 + 0.14 * pulse))
 	# Base ring.
-	_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS, Color(1, 1, 1, 0.10))
+	_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS, Color(tint.r, tint.g, tint.b, 0.10))
 	# Fill: full & bright when ready, otherwise a partial disc that grows as it recharges.
 	var fill_a := 0.9 if ready else 0.28
-	_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS * (1.0 if ready else frac), Color(1, 1, 1, fill_a))
-	_draw_node.draw_arc(_dash_center, DASH_BUTTON_RADIUS, 0.0, TAU, 32, Color(1, 1, 1, 0.9 if ready else 0.4), 2.0)
+	_draw_node.draw_circle(_dash_center, DASH_BUTTON_RADIUS * (1.0 if ready else frac), Color(tint.r, tint.g, tint.b, fill_a))
+	_draw_node.draw_arc(_dash_center, DASH_BUTTON_RADIUS, 0.0, TAU, 32, Color(tint.r, tint.g, tint.b, 0.9 if ready else 0.4), 2.0)
 	# Dash glyph: a small double-chevron ">>".
 	var col := Color(0.15, 0.18, 0.28, 1.0) if ready else Color(1, 1, 1, 0.5)
 	for k in range(2):

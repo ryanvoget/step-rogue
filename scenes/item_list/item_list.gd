@@ -1,28 +1,60 @@
 extends Control
 
+const T := preload("res://scenes/ui/ui_theme.gd")
+
+# Item-row backings. Dark slabs tinted toward the rarity rather than saturated blocks of it —
+# the same rule the reference console follows, where the panel is dark and only the content
+# glows. The "(e)" element tags below were contrast-checked against the OLD brighter values and
+# clear 4.5:1 comfortably against these darker ones too.
 const RARITY_BG := {
-	"common":    Color(0.22, 0.22, 0.27),
-	"uncommon":  Color(0.07, 0.32, 0.11),
-	"rare":      Color(0.07, 0.14, 0.48),
-	"epic":      Color(0.28, 0.07, 0.42),
-	"legendary": Color(0.50, 0.35, 0.00),
+	"common":    Color(0.098, 0.114, 0.149),
+	"uncommon":  Color(0.047, 0.169, 0.106),
+	"rare":      Color(0.047, 0.106, 0.251),
+	"epic":      Color(0.157, 0.063, 0.239),
+	"legendary": Color(0.231, 0.165, 0.027),
 }
 const RARITY_LABEL := {
-	"common":    Color(0.70, 0.70, 0.75),
-	"uncommon":  Color(0.35, 0.90, 0.45),
-	"rare":      Color(0.30, 0.55, 1.00),
-	"epic":      Color(0.80, 0.40, 1.00),
-	"legendary": Color(1.00, 0.80, 0.10),
+	"common":    Color(0.561, 0.639, 0.714),
+	"uncommon":  Color(0.306, 0.902, 0.510),
+	"rare":      Color(0.310, 0.639, 1.000),
+	"epic":      Color(0.761, 0.420, 1.000),
+	"legendary": Color(1.000, 0.737, 0.200),
 }
 const ORDER := ["legendary", "epic", "rare", "uncommon", "common"]
 
-const TYPE_ORDER  := ["all", "weapon", "equipment", "defensive", "artifact"]
+# "(e)" marker shown after the name of any item carrying an `element`, tinted by which element.
+# These are deliberately light rather than fully saturated: the tag sits on RARITY_BG, and a pure
+# red (1,0,0) only manages 2.2:1 on the uncommon green and 3.3:1 on legendary — unreadable. Every
+# colour here clears 4.5:1 (WCAG AA) against all five rarity backgrounds, so the tag stays legible
+# whatever rarity an item is given later. Fire reads as coral for that reason.
+const ELEMENT_TAG_COLORS := {
+	"electric": Color(1.00, 0.85, 0.15), # yellow
+	"fire":     Color(1.00, 0.62, 0.50), # red
+	"ice":      Color(0.55, 0.85, 1.00), # light blue
+	"void":     Color(0.97, 0.58, 1.00), # magenta — Wave Ray Gun; not specified, chosen to match
+}
+
+# Returns the "(e)" tag for an elemental item, or null for everything else.
+func _make_element_tag(item: Dictionary, font_size: int) -> Label:
+	var el := str(item.get("element", ""))
+	if not ELEMENT_TAG_COLORS.has(el):
+		return null
+	var lbl := Label.new()
+	lbl.text = "(e)"
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", ELEMENT_TAG_COLORS[el])
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.tooltip_text = el.capitalize()
+	return lbl
+
+const TYPE_ORDER  := ["all", "weapon", "equipment", "defensive", "artifact", "fused"]
 const TYPE_LABELS := {
 	"all":       "All",
 	"weapon":    "Weapon",
 	"equipment": "Equipment",
 	"defensive": "Defense",
 	"artifact":  "Artifact",
+	"fused":     "Fusion",
 }
 
 const PILL_ACTIVE_BG       := Color(0.18, 0.42, 0.78)
@@ -56,7 +88,7 @@ func _make_pill(type_key: String) -> Button:
 	btn.flat = false
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.custom_minimum_size = Vector2(0, 34)
-	btn.add_theme_font_size_override("font_size", 13)
+	btn.add_theme_font_size_override("font_size", 12)
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 	_apply_pill_style(btn, type_key == _active_filter)
@@ -83,8 +115,11 @@ func _pill_box(bg_col: Color) -> StyleBoxFlat:
 	s.corner_radius_top_right    = 17
 	s.corner_radius_bottom_left  = 17
 	s.corner_radius_bottom_right = 17
-	s.content_margin_left        = 16.0
-	s.content_margin_right       = 16.0
+	# Tight horizontal padding: six pills have to fit inside the 480px viewport, and the row only
+	# scrolls by drag — which the buttons themselves swallow, so anything past the edge is
+	# unreachable rather than merely off-screen.
+	s.content_margin_left        = 9.0
+	s.content_margin_right       = 9.0
 	s.content_margin_top         = 6.0
 	s.content_margin_bottom      = 6.0
 	s.bg_color = bg_col
@@ -103,6 +138,10 @@ func _free_children(parent: Node) -> void:
 		c.free()
 
 func _build_list() -> void:
+	# The Fusion filter isn't a list at all — it's the workbench (see _build_fusion_tab).
+	if _active_filter == "fused":
+		_build_fusion_tab()
+		return
 	# Artifacts (from ItemRegistry.ARTIFACTS) are listed under the regular items on "All", or on
 	# their own with the "Artifact" filter. Everything else comes from ItemRegistry.ITEMS.
 	var filtered: Array
@@ -127,17 +166,34 @@ func _add_section(rarity: String, items: Array) -> void:
 	_content.add_child(header)
 
 	for item in items:
-		_content.add_child(_make_row(item))
+		var row := _make_row(item)
+		_content.add_child(row)
+		_animate_row_in(row, _content.get_child_count())
+
+# Rows fade and slide up as the list builds, staggered down the page — so a long list reads as
+# loading in rather than appearing all at once. Capped so the bottom of a big list is not left
+# waiting on a long queue of delays.
+func _animate_row_in(row: Control, index: int) -> void:
+	row.modulate.a = 0.0
+	var tw := row.create_tween()
+	tw.tween_interval(minf(float(index) * 0.022, 0.5))
+	tw.tween_property(row, "modulate:a", 1.0, 0.22)
 
 func _make_row(item: Dictionary) -> Control:
 	var rarity: String = item.get("rarity", "")
 
+	var accent: Color = RARITY_LABEL.get(rarity, T.TEXT_DIM)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = RARITY_BG.get(rarity, Color(0.2, 0.2, 0.2))
+	sb.bg_color = RARITY_BG.get(rarity, Color(0.1, 0.11, 0.15))
+	sb.border_color = Color(accent, 0.45)
+	sb.set_border_width_all(1)
+	sb.border_width_left = 3 # the emitter rail, matching every other panel in the game
 	sb.corner_radius_top_left     = 10
 	sb.corner_radius_top_right    = 10
 	sb.corner_radius_bottom_left  = 10
 	sb.corner_radius_bottom_right = 10
+	sb.shadow_color = Color(accent, 0.14)
+	sb.shadow_size = 5
 	sb.content_margin_left   = 12.0
 	sb.content_margin_right  = 12.0
 	sb.content_margin_top    = 8.0
@@ -157,10 +213,18 @@ func _make_row(item: Dictionary) -> Control:
 	name_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_col.add_theme_constant_override("separation", 2)
 
+	# Name plus, for elemental items, a colour-coded "(e)" right after it.
+	var name_row := HBoxContainer.new()
+	name_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_row.add_theme_constant_override("separation", 4)
 	var lbl_name := Label.new()
 	lbl_name.text = str(item.get("name", ""))
 	lbl_name.add_theme_font_size_override("font_size", 15)
-	name_col.add_child(lbl_name)
+	name_row.add_child(lbl_name)
+	var el_tag := _make_element_tag(item, 13)
+	if el_tag != null:
+		name_row.add_child(el_tag)
+	name_col.add_child(name_row)
 
 	var lbl_type := Label.new()
 	# Artifacts show their effect description right in the row; other items show their type.
@@ -169,7 +233,11 @@ func _make_row(item: Dictionary) -> Control:
 		lbl_type.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lbl_type.custom_minimum_size = Vector2(180, 0)
 	else:
-		lbl_type.text = TYPE_LABELS.get(str(item.get("type", "")), "")
+		# Weapons show Melee/Ranged too — weapons only fuse within their own kind, so this is
+		# the difference that decides whether two of them can be combined at all.
+		var kind := ItemRegistry.weapon_kind_label(item)
+		lbl_type.text = "%s · %s" % [TYPE_LABELS.get(str(item.get("type", "")), ""), kind] if kind != "" \
+			else TYPE_LABELS.get(str(item.get("type", "")), "")
 	lbl_type.add_theme_font_size_override("font_size", 11)
 	lbl_type.add_theme_color_override("font_color", Color(0.65, 0.68, 0.75))
 	name_col.add_child(lbl_type)
@@ -298,6 +366,9 @@ func _show_item_popup(item: Dictionary) -> void:
 	lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl_name.autowrap_mode = TextServer.AUTOWRAP_WORD
 	header.add_child(lbl_name)
+	var el_tag := _make_element_tag(item, 17)
+	if el_tag != null:
+		header.add_child(el_tag)
 
 	var btn_close := Button.new()
 	btn_close.text = "✕"
@@ -308,7 +379,9 @@ func _show_item_popup(item: Dictionary) -> void:
 	outer.add_child(header)
 
 	var lbl_sub := Label.new()
-	lbl_sub.text = "%s · %s" % [rarity.capitalize(), TYPE_LABELS.get(str(item.get("type", "")), "")]
+	var kind_lbl := ItemRegistry.weapon_kind_label(item)
+	lbl_sub.text = "%s · %s%s" % [rarity.capitalize(), TYPE_LABELS.get(str(item.get("type", "")), ""),
+		" · " + kind_lbl if kind_lbl != "" else ""]
 	lbl_sub.add_theme_font_size_override("font_size", 12)
 	lbl_sub.add_theme_color_override("font_color", RARITY_LABEL.get(rarity, Color(0.7, 0.7, 0.75)))
 	outer.add_child(lbl_sub)
@@ -551,3 +624,334 @@ func _build_stat_lines(item: Dictionary) -> Array:
 			lines.append("Damage Tick: every %ss" % _fmt(g_interval))
 
 	return lines
+
+# ── Fusion workbench ─────────────────────────────────────────────────────────────────────────
+# A drag-and-drop calculator for the fusion system: two slots, and every fusable weapon laid out
+# below them. Drag a weapon into each slot and the result appears between them. Dragging a weapon
+# back out of a slot empties it. Reference only — nothing here changes the save or the run.
+#
+# Drag-and-drop uses Godot's built-in Control drag protocol (_get_drag_data/_can_drop_data/
+# _drop_data), which runs on mouse events; touch reaches it via the engine's default
+# emulate_mouse_from_touch. The slots and chips are inner classes purely so they can override
+# those three virtuals — everything else about them is built here.
+
+const SLOT_EMPTY_BG  := Color(0.10, 0.13, 0.19)
+const SLOT_FILLED_BG := Color(0.16, 0.21, 0.30)
+const SLOT_HOVER_BG  := Color(0.20, 0.34, 0.55)
+const FUSE_ICON      := 60.0
+const CHIP_ICON      := 44.0
+
+var _slot_a: Control = null
+var _slot_b: Control = null
+var _result_box: VBoxContainer = null
+
+class FusionSlot extends PanelContainer:
+	var list: Node = null
+	var item_name := ""
+	func _can_drop_data(_pos: Vector2, data: Variant) -> bool:
+		return data is Dictionary and data.has("weapon")
+	func _drop_data(_pos: Vector2, data: Variant) -> void:
+		list._fill_slot(self, str(data["weapon"]))
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		if item_name == "":
+			return null
+		var carried := item_name
+		set_drag_preview(list._make_drag_preview(carried))
+		list._fill_slot(self, "") # pulled out of the box = removed, per the drop rules
+		return {"weapon": carried}
+
+class FusionChip extends PanelContainer:
+	var list: Node = null
+	var item_name := ""
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		set_drag_preview(list._make_drag_preview(item_name))
+		return {"weapon": item_name}
+
+# Every weapon that appears as a component of some fusion, in registry order.
+func _fusable_weapons() -> Array:
+	var names := {}
+	for key in ItemRegistry.COMBINATIONS:
+		for part in str(key).split("+"):
+			names[part] = true
+	var out: Array = []
+	for it in ItemRegistry.ITEMS:
+		if names.has(it.get("name", "")):
+			out.append(it)
+	return out
+
+func _icon_for(item: Dictionary, size: float) -> TextureRect:
+	var tex := TextureRect.new()
+	tex.custom_minimum_size = Vector2(size, size)
+	tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tex.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var path: String = "res://assets/icons/" + str(item.get("file", ""))
+	if ResourceLoader.exists(path):
+		tex.texture = load(path)
+	return tex
+
+func _box(bg: Color, radius: int = 12, pad: float = 10.0) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.corner_radius_top_left = radius
+	s.corner_radius_top_right = radius
+	s.corner_radius_bottom_left = radius
+	s.corner_radius_bottom_right = radius
+	s.content_margin_left = pad
+	s.content_margin_right = pad
+	s.content_margin_top = pad
+	s.content_margin_bottom = pad
+	return s
+
+func _make_drag_preview(item_name: String) -> Control:
+	var item: Dictionary = ItemRegistry.get_item_by_name(item_name)
+	# A copy of the palette chip — same box, icon and name — so what follows your finger is
+	# visibly the item you picked up. Offset so it sits above the touch point rather than under it.
+	var wrap := PanelContainer.new()
+	wrap.custom_minimum_size = Vector2(92, 78)
+	wrap.add_theme_stylebox_override("panel", _box(RARITY_BG.get(item.get("rarity",""), SLOT_FILLED_BG), 10, 6.0))
+	wrap.modulate = Color(1, 1, 1, 0.9)
+	wrap.position = Vector2(-46, -90)
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", 2)
+	var icon := _icon_for(item, CHIP_ICON)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(icon)
+	var nm := Label.new()
+	nm.text = item_name
+	nm.add_theme_font_size_override("font_size", 9)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(nm)
+	wrap.add_child(col)
+	# set_drag_preview centres on the cursor; wrapping in a Control lets the offset above apply.
+	var holder := Control.new()
+	holder.add_child(wrap)
+	return holder
+
+func _build_fusion_tab() -> void:
+	_slot_a = null
+	_slot_b = null
+
+	var hint := Label.new()
+	hint.text = "Drag two weapons into the boxes to see what they fuse into.\nDrag one back out to clear it. Melee fuses with melee, ranged with ranged."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.add_theme_color_override("font_color", PILL_INACTIVE_FG)
+	_content.add_child(hint)
+
+	# The two drop boxes, with a "+" between them.
+	var slots := HBoxContainer.new()
+	slots.add_theme_constant_override("separation", 10)
+	slots.alignment = BoxContainer.ALIGNMENT_CENTER
+	_slot_a = _make_slot("A")
+	_slot_b = _make_slot("B")
+	slots.add_child(_slot_a)
+	var plus := Label.new()
+	plus.text = "+"
+	plus.add_theme_font_size_override("font_size", 26)
+	plus.add_theme_color_override("font_color", PILL_INACTIVE_FG)
+	plus.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	slots.add_child(plus)
+	slots.add_child(_slot_b)
+	_content.add_child(slots)
+
+	# Result panel, refreshed by _refresh_fusion_result.
+	_result_box = VBoxContainer.new()
+	_result_box.add_theme_constant_override("separation", 6)
+	_content.add_child(_result_box)
+
+	var sep := HSeparator.new()
+	_content.add_child(sep)
+
+	var palette_hdr := Label.new()
+	var fusable := _fusable_weapons()
+	palette_hdr.text = "Fusable weapons  %d" % fusable.size()
+	palette_hdr.add_theme_font_size_override("font_size", 15)
+	palette_hdr.add_theme_color_override("font_color", RARITY_LABEL["rare"])
+	_content.add_child(palette_hdr)
+
+	# Melee and ranged are listed separately, since a fusion can only pair like with like.
+	for kind in ["Melee", "Ranged"]:
+		var group: Array = fusable.filter(func(i): return ItemRegistry.weapon_kind_label(i) == kind)
+		if group.is_empty():
+			continue
+		var sub := Label.new()
+		sub.text = kind
+		sub.add_theme_font_size_override("font_size", 12)
+		sub.add_theme_color_override("font_color", PILL_INACTIVE_FG)
+		_content.add_child(sub)
+		var grid := HFlowContainer.new()
+		grid.add_theme_constant_override("h_separation", 8)
+		grid.add_theme_constant_override("v_separation", 8)
+		for it in group:
+			grid.add_child(_make_chip(it))
+		_content.add_child(grid)
+
+	_refresh_fusion_result()
+
+func _make_slot(label_text: String) -> Control:
+	var slot := FusionSlot.new()
+	slot.list = self
+	slot.custom_minimum_size = Vector2(120, 120)
+	slot.add_theme_stylebox_override("panel", _box(SLOT_EMPTY_BG))
+	slot.set_meta("label", label_text)
+	_paint_slot(slot)
+	return slot
+
+# Rebuilds a slot's contents from its item_name — empty shows the placeholder letter.
+func _paint_slot(slot: Control) -> void:
+	for c in slot.get_children():
+		c.queue_free()
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 4)
+	if slot.item_name == "":
+		slot.add_theme_stylebox_override("panel", _box(SLOT_EMPTY_BG))
+		var ph := Label.new()
+		ph.text = str(slot.get_meta("label", ""))
+		ph.add_theme_font_size_override("font_size", 30)
+		ph.add_theme_color_override("font_color", Color(0.35, 0.40, 0.50))
+		ph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(ph)
+	else:
+		var item: Dictionary = ItemRegistry.get_item_by_name(slot.item_name)
+		slot.add_theme_stylebox_override("panel", _box(RARITY_BG.get(item.get("rarity",""), SLOT_FILLED_BG)))
+		var icon := _icon_for(item, FUSE_ICON)
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		col.add_child(icon)
+		var nm := Label.new()
+		nm.text = slot.item_name
+		nm.add_theme_font_size_override("font_size", 10)
+		nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(nm)
+	slot.add_child(col)
+
+func _fill_slot(slot: Control, item_name: String) -> void:
+	slot.item_name = item_name
+	_paint_slot(slot)
+	_refresh_fusion_result()
+
+func _make_chip(item: Dictionary) -> Control:
+	var chip := FusionChip.new()
+	chip.list = self
+	chip.item_name = str(item.get("name", ""))
+	chip.custom_minimum_size = Vector2(92, 78)
+	chip.tooltip_text = chip.item_name
+	chip.add_theme_stylebox_override("panel", _box(RARITY_BG.get(item.get("rarity",""), SLOT_FILLED_BG), 10, 6.0))
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", 2)
+	var icon := _icon_for(item, CHIP_ICON)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(icon)
+	var nm := Label.new()
+	nm.text = chip.item_name
+	nm.add_theme_font_size_override("font_size", 9)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(nm)
+	chip.add_child(col)
+	return chip
+
+# Shows the fused weapon for whatever the two slots currently hold: its icon, name, rarity and
+# description, or the reason there's no result (nothing chosen / mismatched types / no such pair).
+func _refresh_fusion_result() -> void:
+	if _result_box == null or not is_instance_valid(_result_box):
+		return
+	_free_children(_result_box)
+	var a: String = _slot_a.item_name if _slot_a != null else ""
+	var b: String = _slot_b.item_name if _slot_b != null else ""
+
+	if a == "" or b == "":
+		_result_box.add_child(_status_label("Fill both boxes to see the fusion.", PILL_INACTIVE_FG))
+		return
+
+	var result: Dictionary = ItemRegistry.fusion_result(a, b)
+	if result.is_empty():
+		var ka := ItemRegistry.weapon_kind_label(ItemRegistry.get_item_by_name(a))
+		var kb := ItemRegistry.weapon_kind_label(ItemRegistry.get_item_by_name(b))
+		var why := "%s and %s don't fuse." % [a, b]
+		if ka != kb:
+			why = "%s is %s and %s is %s — a fusion needs two of the same type." % [a, ka, b, kb]
+		_result_box.add_child(_status_label(why, Color(1.0, 0.55, 0.45)))
+		return
+
+	var rarity: String = result.get("rarity", "")
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _box(RARITY_BG.get(rarity, SLOT_FILLED_BG), 12, 12.0))
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 12)
+	row.add_child(_icon_for(result, FUSE_ICON))
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 3)
+
+	var name_row := HBoxContainer.new()
+	name_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_row.add_theme_constant_override("separation", 4)
+	var nm := Label.new()
+	nm.text = str(result.get("name", ""))
+	nm.add_theme_font_size_override("font_size", 17)
+	name_row.add_child(nm)
+	var tag := _make_element_tag(result, 13)
+	if tag != null:
+		name_row.add_child(tag)
+	col.add_child(name_row)
+
+	var sub := Label.new()
+	sub.text = "%s  ·  %s" % [rarity.capitalize(), ItemRegistry.weapon_kind_label(result)]
+	sub.add_theme_font_size_override("font_size", 12)
+	sub.add_theme_color_override("font_color", RARITY_LABEL.get(rarity, PILL_INACTIVE_FG))
+	col.add_child(sub)
+
+	# Stats on the left, the weapon's own description to their right.
+	var body := HBoxContainer.new()
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_theme_constant_override("separation", 10)
+
+	var stats: Array = _build_stat_lines(result)
+	if not stats.is_empty():
+		var d := Label.new()
+		d.text = "\n".join(stats)
+		d.custom_minimum_size = Vector2(118, 0)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.add_theme_font_size_override("font_size", 11)
+		d.add_theme_color_override("font_color", Color(0.82, 0.86, 0.92))
+		body.add_child(d)
+
+	var blurb := str(result.get("effect", ""))
+	if blurb != "":
+		var bl := Label.new()
+		bl.text = blurb
+		bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		bl.add_theme_font_size_override("font_size", 11)
+		bl.add_theme_color_override("font_color", Color(0.66, 0.72, 0.82))
+		body.add_child(bl)
+
+	col.add_child(body)
+
+	row.add_child(col)
+	panel.add_child(row)
+	_result_box.add_child(panel)
+
+func _status_label(text: String, col: Color) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_color", col)
+	return l

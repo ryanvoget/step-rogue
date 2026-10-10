@@ -30,6 +30,9 @@ var _regen_interval := 1.0
 var _regen_timer := 0.0
 var _regen_ticks_left := 0
 var _speed_multiplier := 1.0
+# Permanent run upgrades bought from the post-floor crate. Separate from the temporary boosts
+# above so a Stim Shot expiring can never wipe a purchased upgrade.
+var _run_speed_multiplier := 1.0
 var _speed_boost_timer := 0.0
 
 # Speed Boost Battery (equipment): tap the green equipment button (not a joystick — see
@@ -99,9 +102,10 @@ const BASE_MAX_HEALTH := 150 # baseline for apply_bonus_max_health (Health+ arti
 # Teleportation Bracelet dash (lobby pickup): a quick 100px blink in the move direction, invincible
 # + flashing for the blink, then a 2s cooldown. A dash that dodges an attack within PERFECT_DASH_FRAMES
 # of landing is a "perfect dash" (blue flash + floating "Perfect!", heals with the Perfect Dash+ relic).
-const DASH_DISTANCE := 50.0
+const DASH_DISTANCE := 60.0      # Teleportation Bracelet blink distance
 const DASH_IFRAME := 0.28        # seconds of invincibility + flashing per dash
 const DASH_COOLDOWN := 2.0       # recharge time
+const PERFECT_DASH_COOLDOWN := 0.2 # refunded recharge after a perfect dash
 const DASH_FLASH_INTERVAL := 0.05
 const PERFECT_DASH_FRAMES := 4.0 # a threat within this many frames of hitting = a perfect dash
 var _dash_iframe := 0.0
@@ -230,6 +234,7 @@ var _beam_range := 0.0
 var _beam_arc_degrees := 0.0
 var _beam_burn_damage := 0
 var _beam_burn_duration := 0.0
+var _beam_burn_tick := 0.0 # 0 = the enemy's default 1s burn cadence
 var _beam_tick_interval := 1.0 # seconds of continuous contact between damage ticks (e.g. Flamethrower's 0.75s)
 var _beam_active := false # true while the beam is currently being drawn/firing
 var _beam_contact: Dictionary = {} # enemy -> seconds of continuous contact this activation (for the tick)
@@ -252,6 +257,7 @@ var _is_thrown_melee := false
 var _thrown_damage := 0
 var _thrown_radius := 100.0
 var _thrown_speed := 520.0
+var _thrown_max_concurrent := 1
 var _thrown_barrel_offset := 0.0
 var _thrown_active_count := 0
 
@@ -324,10 +330,11 @@ func _physics_process(delta: float) -> void:
 	if dir.length() > 0.1:
 		_last_move_dir = dir.normalized() # remembered so a dash while standing still still has a direction
 	_tick_teleport_dash(delta)
+	_tick_execute_window(delta)
 	if _frozen_slow_timer > 0.0:
 		_frozen_slow_timer -= delta
 	var frozen_mult := FROZEN_SLOW_MULT if _frozen_slow_timer > 0.0 else 1.0
-	velocity = dir * SPEED * _speed_multiplier * _battery_speed_multiplier * _hoverboard_speed_multiplier * frozen_mult
+	velocity = dir * SPEED * _speed_multiplier * _run_speed_multiplier * _battery_speed_multiplier * _hoverboard_speed_multiplier * frozen_mult
 
 	# GameManager.mobile_aim_dir is set by the right joystick in mobile_controls.gd.
 	# It's zero when the joystick is idle, non-zero when pushed past the dead zone.
@@ -343,6 +350,7 @@ func _physics_process(delta: float) -> void:
 		if to_mouse.length() > 1.0:
 			_mouse_angle = to_mouse.angle()
 
+	_apply_melee_aim_assist(delta)
 	_spawn_point.position = Vector2(22, 0).rotated(_mouse_angle)
 	if _hoverboard_active:
 		_hoverboard_sprite.rotation = _mouse_angle
@@ -390,6 +398,12 @@ func _physics_process(delta: float) -> void:
 	_was_previewing_aim = previewing_now
 	_was_shield_drawn = shield_drawn_now
 
+	if _grapple_line_timer > 0.0:
+		_grapple_line_timer -= delta
+		queue_redraw() # fade the chain out (and clear it on the frame it expires)
+	if _charge_flash_timer > 0.0:
+		_charge_flash_timer -= delta
+		queue_redraw() # decay the "fully charged" flash
 	if _is_sniper:
 		GameManager.sniper_charge = minf(GameManager.sniper_charge + delta, GameManager.sniper_charge_time)
 
@@ -399,10 +413,24 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_pressed("shoot"):
 		if _is_beam:
 			_tick_beam(delta)
+		elif _shot_charge_time > 0.0:
+			_tick_charge(delta)
 		else:
 			_try_attack()
-	elif _is_beam:
-		_stop_beam()
+	else:
+		if _is_beam:
+			_stop_beam()
+		# Releasing the trigger part-way through a charge abandons it — you have to hold the full
+		# duration. Keeps charge weapons a commitment rather than something you feather. One extra
+		# redraw on the falling edge clears the glow (same pattern as the aim preview above).
+		# Partial-release weapons are the exception: they throw at reduced power instead.
+		if _shot_charge_accum > 0.0:
+			if _charge_partial_release:
+				_release_charge()
+			else:
+				_shot_charge_accum = 0.0
+				GameManager.weapon_charge = 0.0
+				queue_redraw()
 
 const WEAPON_TARGET_SIZE := 40.0
 
@@ -424,32 +452,186 @@ func set_weapon_texture(tex: Texture2D) -> void:
 
 # Applies a ranged weapon's tuned gameplay stats (from ItemRegistry) to shooting behavior.
 func set_ranged_stats(damage: int, fire_rate: float, barrel_offset: float = 0.0, freeze_duration: float = 0.0,
-		knockback: float = 0.0, wave_max_width: float = 0.0) -> void:
+		knockback: float = 0.0, wave_max_width: float = 0.0, bullet_speed: float = -1.0) -> void:
 	_stop_beam()
 	_stop_sniper()
 	_is_melee = false
 	_is_beam = false
 	_is_thrown_melee = false
 	_is_launcher = false
+	_is_grapple = false
 	GameManager.melee_equipped = false
 	GameManager.thrown_melee_equipped = false
 	_shot_damage = damage
+	# -1 keeps bullet.tscn's own default; a weapon's bullet_speed row overrides it. Note this is a
+	# pre-multiplier value — GameManager applies LASER_SPEED_MULT on top (see spawn_bullet).
+	_shot_speed = bullet_speed
 	_attack_timer.wait_time = fire_rate
 	_barrel_offset = barrel_offset
 	_shot_freeze_duration = freeze_duration
 	_shot_knockback = knockback
 	_shot_wave_max_width = wave_max_width
+	set_shot_modifiers(0, 0.0, 0.0, 1.0, false, 0, 0.0) # cleared per equip; see equip_on_player
+	set_burst(0, 0.0)
 	_reset_elemental_effects()
+
+# ── Shared ranged modifiers ──────────────────────────────────────────────────────────────────
+# Bolted onto set_ranged_stats rather than widening its signature again, since these apply
+# across whole weapon families rather than to one weapon:
+#   scatter  — fire N bullets across a spread instead of one (Scatter Blaster family, 5 weapons)
+#   crit     — chance to multiply a shot's damage (Crit Blaster; generic so others can use it)
+#   pierce   — pass through enemies (Photon Spear)
+#   ricochet — bounce off walls (dagger family, Cannon Boomerang)
+var _shot_scatter_count := 0
+var _shot_scatter_spread := 0.0
+var _shot_crit_chance := 0.0
+var _shot_crit_mult := 1.0
+var _shot_pierce := false
+var _shot_ricochet := 0
+var _shot_max_range := 0.0
+
+# Burst fire: N shots at the normal fire_rate, then a longer recharge before the next burst
+# (Laser Burst Cannon). Mirrors the B Unit enemy's burst pattern.
+var _burst_count := 0
+var _burst_recharge := 0.0
+var _burst_left := 0
+
+func set_burst(count: int, recharge: float) -> void:
+	_burst_count = count
+	_burst_recharge = recharge
+	_burst_left = count
+
+var _shot_bolt_style := false
+var _shot_chain_count := 1
+var _shot_chain_frac := 0.5
+var _shot_speed := -1.0
+
+func set_shot_modifiers(scatter_count: int, scatter_spread_degrees: float, crit_chance: float,
+		crit_mult: float, pierce: bool, ricochet_bounces: int, max_range: float = 0.0,
+		bolt_style: bool = false) -> void:
+	_shot_scatter_count = scatter_count
+	_shot_scatter_spread = deg_to_rad(scatter_spread_degrees)
+	_shot_crit_chance = crit_chance
+	_shot_crit_mult = crit_mult
+	_shot_pierce = pierce
+	_shot_ricochet = ricochet_bounces
+	_shot_max_range = max_range
+	_shot_bolt_style = bolt_style
+
+# ── Charge weapons ───────────────────────────────────────────────────────────────────────────
+# Hold to charge, fire automatically the instant it completes (Scatter Cannon, Charged Ray
+# Gun, Cannon Boomerang, Beam Cannon). Distinct from the Sniper Rifle's charge, which was a
+# separate arm-then-tap-a-target flow with its own UI; this one keeps the normal aim joystick and
+# just gates the shot behind a wind-up. Charge is published to GameManager so mobile_controls can
+# draw a fill on the fire control.
+var _shot_charge_time := 0.0
+var _shot_charge_accum := 0.0
+
+# Partial-release charge (Cannon Boomerang). Instead of auto-firing the instant the bar fills,
+# the throw waits for the player to let go: the charge caps at full, flashes once to say "ready",
+# and holding past that costs nothing. Releasing early still throws, but scaled — hold half a
+# second of the one-second charge and you get a boomerang at 50% damage and 50% speed. That makes
+# the wind-up a risk/reward read rather than the all-or-nothing commitment the other charge
+# weapons ask for. MIN_CHARGE_SCALE floors it so a stray tap can't produce a boomerang so slow it
+# effectively never comes back (the weapon is single-instance — see _thrown_active_count).
+const MIN_CHARGE_SCALE := 0.1
+const CHARGE_FLASH_DURATION := 0.22
+var _charge_partial_release := false
+var _charge_scale := 1.0        # multiplies thrown damage and speed for the pending throw
+var _charge_flashed := false    # one flash per charge, not one per frame at full
+var _charge_flash_timer := 0.0
+
+func set_charge_time(t: float) -> void:
+	_shot_charge_time = t
+	_shot_charge_accum = 0.0
+	_charge_scale = 1.0
+	_charge_flashed = false
+	_charge_flash_timer = 0.0
+	GameManager.weapon_charge_time = t
+	GameManager.weapon_charge = 0.0
+
+func set_charge_partial_release(enabled: bool) -> void:
+	_charge_partial_release = enabled
+
+func _tick_charge(delta: float) -> void:
+	# A thrown weapon holds _can_attack false for its whole round trip, so a fixed-cadence one
+	# (_thrown_max_concurrent > 1) has to keep charging through the flight — otherwise its timer
+	# is silently replaced by however long the boomerang takes to come back.
+	var cadence_driven := _is_thrown_melee and _thrown_max_concurrent > 1
+	if not _can_attack and not cadence_driven:
+		return # still on the post-shot cooldown; don't bank charge during it
+	# Charge + burst (Laser Burst Cannon): the wind-up gates the START of a burst, not every round.
+	# Once the first round is away the rest follow on the normal fire_rate cadence, and only when
+	# the burst is spent does the next charge begin — otherwise a 3-round burst would need three
+	# separate wind-ups and never read as a burst at all. _burst_left is reset to _burst_count
+	# after the final round, so "mid-burst" is simply the two not matching.
+	if _burst_count > 1 and _burst_left != _burst_count:
+		_try_ranged_attack()
+		return
+	_shot_charge_accum += delta
+	if _charge_partial_release:
+		if _shot_charge_accum >= _shot_charge_time and not _charge_flashed:
+			_charge_flashed = true
+			_charge_flash_timer = CHARGE_FLASH_DURATION
+			GameManager.add_screen_shake(0.12) # the "fully charged" pop
+		_shot_charge_accum = minf(_shot_charge_accum, _shot_charge_time)
+	GameManager.weapon_charge = clampf(_shot_charge_accum / _shot_charge_time, 0.0, 1.0)
+	queue_redraw() # animate the barrel charge glow
+	if _charge_partial_release:
+		return # fires on release instead — see _release_charge
+	if _shot_charge_accum >= _shot_charge_time:
+		_shot_charge_accum = 0.0
+		GameManager.weapon_charge = 0.0
+		GameManager.add_screen_shake(0.2) # release kick
+		if _is_thrown_melee:
+			_try_throw_sword()
+			_can_attack = true # a cadence weapon's next charge starts now, not on the return
+		else:
+			_try_ranged_attack()
+
+# Trigger released on a partial-release weapon: throw at whatever power was banked.
+func _release_charge() -> void:
+	var t := clampf(_shot_charge_accum / _shot_charge_time, 0.0, 1.0)
+	_shot_charge_accum = 0.0
+	_charge_flashed = false
+	GameManager.weapon_charge = 0.0
+	queue_redraw()
+	_charge_scale = maxf(t, MIN_CHARGE_SCALE)
+	GameManager.add_screen_shake(0.2 * _charge_scale) # weaker throw, weaker kick
+	if _is_thrown_melee:
+		_try_throw_sword()
+	else:
+		_try_ranged_attack()
+
+# Rolls this shot's damage, recording whether it crit so _fire_one can flash for it.
+var _last_shot_crit := false
+func _roll_shot_damage() -> int:
+	_last_shot_crit = _shot_crit_chance > 0.0 and randf() < _shot_crit_chance
+	if _last_shot_crit:
+		GameManager.add_screen_shake(0.22)
+		return int(round(float(_shot_damage) * _shot_crit_mult))
+	return _shot_damage
+
+# One bullet, with every shared modifier applied.
+func _fire_one(pos: Vector2, angle: float) -> void:
+	var dmg := _roll_shot_damage() # sets _last_shot_crit, read on the next line
+	GameManager.spawn_bullet(bullet_scene, pos, angle, dmg, _shot_speed, _shot_freeze_duration,
+		_shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain,
+		_shot_pierce, _shot_ricochet, _last_shot_crit, 0, 0.0, _shot_max_range,
+		0.0, 0.0, 0.0, _shot_bolt_style, _shot_chain_count, _shot_chain_frac)
 
 # Elemental effect setters, called by ItemRegistry.equip_on_player after set_ranged/set_melee.
 func _reset_elemental_effects() -> void:
 	_shot_burn_dmg = 0; _shot_burn_dur = 0.0; _shot_chain = false
 	_melee_burn_dmg = 0; _melee_burn_dur = 0.0; _melee_freeze_dur = 0.0
 
-func set_ranged_effects(burn_dmg: int, burn_dur: float, chain: bool) -> void:
+func set_ranged_effects(burn_dmg: int, burn_dur: float, chain: bool,
+		chain_count: int = 1, chain_damage_frac: float = 0.5) -> void:
 	_shot_burn_dmg = burn_dmg
 	_shot_burn_dur = burn_dur
 	_shot_chain = chain
+	_shot_chain_count = chain_count
+	_shot_chain_frac = chain_damage_frac
 
 func set_melee_effects(burn_dmg: int, burn_dur: float, freeze_dur: float) -> void:
 	_melee_burn_dmg = burn_dmg
@@ -468,6 +650,10 @@ func set_melee_stats(damage: int, attack_rate: float, melee_range: float, knockb
 	_is_beam = false
 	_is_thrown_melee = false
 	_is_launcher = false
+	_is_grapple = false
+	set_pulse_ring(0, 0.0) # cleared per equip; ring weapons re-set it right after (see equip_on_player)
+	set_melee_projectile(0, 0, 0)
+	set_melee_shake_override(0.0)
 	GameManager.melee_equipped = not use_joystick_aim
 	GameManager.thrown_melee_equipped = false
 	_melee_damage = damage
@@ -478,6 +664,94 @@ func set_melee_stats(damage: int, attack_rate: float, melee_range: float, knockb
 	_melee_arc_degrees = arc_degrees if arc_degrees > 0.0 else DEFAULT_MELEE_ARC_DEGREES
 	_melee_stun = stun
 	_reset_elemental_effects()
+
+# ── Pulse-ring weapons (the hammer family) ───────────────────────────────────────────────────
+# A ground slam that sends an expanding ring outward instead of (or as well as) swinging a cone.
+# Seven weapons use this: War Hammer and Pulse Hammer plus five fused variants. Two shapes:
+#   • ring only (_pulse_ring_range < 0)  — no cone at all, the ring IS the attack
+#   • cone + ring — a normal swing that detonates a ring out at _pulse_ring_range (Extended
+#     Hammer at the tip of the staff cone, Whip Hammer at the whip's full 256px reach)
+const PULSE_RING_SCENE := preload("res://scenes/fx/wave_pulse.tscn")
+const PULSE_RING_COLOR := Color(1.0, 0.78, 0.35) # warm, so it reads as a slam not the blue artifact
+var _pulse_ring_damage := 0
+var _pulse_ring_radius := 0.0
+var _pulse_ring_range := -1.0  # <0 = ring spawns on the player; >=0 = this far along the aim
+var _pulse_ring_pull := false  # Grapple Hammer: drag in first, then shove out
+
+func set_pulse_ring(damage: int, radius: float, ring_range: float = -1.0, pull_first: bool = false) -> void:
+	_pulse_ring_damage = damage
+	_pulse_ring_radius = radius
+	_pulse_ring_range = ring_range
+	_pulse_ring_pull = pull_first
+
+func has_pulse_ring() -> bool:
+	return _pulse_ring_radius > 0.0 and _pulse_ring_damage > 0
+
+# Drops a ring, either at the player's feet or out along the aim direction.
+func _spawn_pulse_ring() -> void:
+	if not has_pulse_ring():
+		return
+	var pos := global_position
+	if _pulse_ring_range >= 0.0:
+		pos += Vector2.RIGHT.rotated(_mouse_angle) * _pulse_ring_range
+	var ring: Node2D = PULSE_RING_SCENE.instantiate()
+	_world_parent().add_child(ring)
+	ring.configure(pos, _pulse_ring_damage, _pulse_ring_radius, _melee_knockback, _pulse_ring_pull, PULSE_RING_COLOR)
+	GameManager.add_screen_shake(clampf(float(_pulse_ring_damage) / 18.0, 0.15, 0.55))
+
+# FX that must outlive the swing are parented to the world, not the player, so they stay put.
+func _world_parent() -> Node:
+	return get_parent() if get_parent() != null else self
+
+# ── Melee-launched projectiles ───────────────────────────────────────────────────────────────
+# The glove/dagger hybrids fire something on every swing as well as hitting in melee: Spiked
+# Gloves throw a ricocheting dagger per punch, Beam Gloves a straight blast, Beam Daggers two
+# daggers. Dagger Hammer instead sprays `radial_count` projectiles in a full circle.
+var _melee_proj_damage := 0
+var _melee_proj_count := 0
+var _melee_proj_bounces := 0
+var _melee_radial_count := 0
+var _melee_proj_split := 0
+var _melee_proj_split_delay := 0.0
+
+func set_melee_projectile(damage: int, count: int, bounces: int, radial_count: int = 0,
+		split_count: int = 0, split_delay: float = 0.0, fallback_damage: int = 0) -> void:
+	# A weapon that fires projectiles but never states their damage falls back to its own, rather
+	# than silently spawning harmless ones (which is exactly how Dagger Hammer shipped broken).
+	_melee_proj_damage = damage if damage > 0 else fallback_damage
+	_melee_proj_count = count
+	_melee_proj_bounces = bounces
+	_melee_radial_count = radial_count
+	_melee_proj_split = split_count
+	_melee_proj_split_delay = split_delay
+
+func _fire_melee_projectiles() -> void:
+	if bullet_scene == null:
+		return
+	var pos := _spawn_point.global_position
+	if _melee_radial_count > 0:
+		# Ground slam: an even ring of projectiles, each optionally splitting again shortly after.
+		for i in range(_melee_radial_count):
+			var a := TAU * float(i) / float(_melee_radial_count)
+			GameManager.spawn_bullet(bullet_scene, pos, a, _melee_proj_damage, -1.0, 0.0, 0.0, 0.0,
+				true, 0, 0.0, false, false, _melee_proj_bounces, false, _melee_proj_split, _melee_proj_split_delay)
+		return
+	if _melee_proj_count <= 0 or _melee_proj_damage <= 0:
+		return
+	# Fired along the swing. Several are fanned narrowly so they don't stack into one line.
+	const HYBRID_FAN := deg_to_rad(14.0)
+	for i in range(_melee_proj_count):
+		var off := 0.0 if _melee_proj_count == 1 else -HYBRID_FAN * 0.5 + HYBRID_FAN * (float(i) / float(_melee_proj_count - 1))
+		GameManager.spawn_bullet(bullet_scene, pos, _mouse_angle + off, _melee_proj_damage, -1.0, 0.0,
+			0.0, 0.0, true, 0, 0.0, false, false, _melee_proj_bounces)
+
+# Overrides the swing cone width after set_melee_stats (Nova Gloves uses a full 360).
+var _melee_shake_override := 0.0
+func set_melee_shake_override(v: float) -> void:
+	_melee_shake_override = v
+
+func set_melee_arc(degrees: float) -> void:
+	_melee_arc_degrees = degrees
 
 func set_chain_lightning(enabled: bool) -> void:
 	_melee_chain = enabled
@@ -496,6 +770,7 @@ func set_beam_stats(damage_per_sec: int, beam_range: float, arc_degrees: float, 
 	_is_beam = true
 	_is_thrown_melee = false
 	_is_launcher = false
+	_is_grapple = false
 	GameManager.melee_equipped = false
 	GameManager.thrown_melee_equipped = false
 	_beam_damage_per_sec = damage_per_sec
@@ -504,6 +779,79 @@ func set_beam_stats(damage_per_sec: int, beam_range: float, arc_degrees: float, 
 	_beam_burn_damage = burn_damage
 	_beam_burn_duration = burn_duration
 	_beam_tick_interval = tick_interval
+	_beam_burn_tick = 0.0 # cleared per equip; Flame Thrower re-sets it (equip_on_player)
+	_beam_width = 0.0 # cleared per equip; straight beams re-set it (see equip_on_player)
+	set_beam_extras(1, 0.0, 0, 0.0, 0, 0.0) # cleared per equip; variants re-set it (equip_on_player)
+
+# ── Beam variants ────────────────────────────────────────────────────────────────────────────
+# Three ways the fused beams differ from a plain one:
+#   beam_count/fan  — several beams spread in a fan (Beam Scatter Blaster: 3 at 4 dmg/sec each)
+#   side shots      — ordinary bullets fired alongside the beam (Beam Laser Blaster: 3/sec)
+#   pulse           — a ball travelling down the beam for extra damage (Beam Cannon: 12 every 1s)
+# A beam is either a CONE (Flame Thrower — a spreading gout of flame) or a STRAIGHT line of
+# fixed width (the beam guns — a laser doesn't widen with distance). _beam_width > 0 selects the
+# straight form: hit test becomes distance-to-the-aim-line rather than an angle check.
+var _beam_width := 0.0
+
+func set_beam_width(w: float) -> void:
+	_beam_width = w
+
+var _beam_count := 1
+var _beam_fan := 0.0
+var _beam_side_damage := 0
+var _beam_side_rate := 0.0
+var _beam_pulse_damage := 0
+var _beam_pulse_rate := 0.0
+var _beam_side_accum := 0.0
+var _beam_pulse_accum := 0.0
+# Beam Cannon's cycle: the beam burns continuously while the blast winds up, blasts at full, then
+# goes dark for _beam_pulse_cooldown before the beam comes back and the next wind-up starts. The
+# wind-up length is the weapon's charge_time — _is_beam short-circuits _tick_charge in
+# _physics_process, so the beam has to run its own charge rather than share that path.
+var _beam_pulse_cooldown := 0.0
+var _beam_cooldown_left := 0.0
+# Side-shot flight: speed override plus the corkscrew that winds them around the beam.
+var _beam_side_speed := -1.0
+var _beam_side_spiral_radius := 0.0
+var _beam_side_spiral_rate := 0.0
+var _beam_side_flip := false
+
+func set_beam_burn_tick(t: float) -> void:
+	_beam_burn_tick = t
+
+func set_beam_side_flight(speed: float, spiral_radius: float, spiral_rate: float) -> void:
+	_beam_side_speed = speed if speed > 0.0 else -1.0
+	_beam_side_spiral_radius = spiral_radius
+	_beam_side_spiral_rate = spiral_rate
+	_beam_side_flip = false
+
+func set_beam_extras(count: int, fan_degrees: float, side_damage: int, side_rate: float,
+		pulse_damage: int, pulse_rate: float, pulse_cooldown: float = 0.0) -> void:
+	_beam_count = maxi(1, count)
+	_beam_fan = deg_to_rad(fan_degrees)
+	_beam_side_damage = side_damage
+	_beam_side_rate = side_rate
+	_beam_pulse_damage = pulse_damage
+	_beam_pulse_rate = pulse_rate
+	_beam_pulse_cooldown = pulse_cooldown
+	_beam_side_accum = 0.0
+	_beam_pulse_accum = 0.0
+	_beam_cooldown_left = 0.0
+
+# How long the blast takes to wind up: charge_time when the weapon sets one, else the plain
+# pulse_rate cadence.
+func _beam_pulse_period() -> float:
+	return _shot_charge_time if _shot_charge_time > 0.0 else _beam_pulse_rate
+
+# The angles this beam occupies — one entry for a normal beam, an odd fan for a multi-beam.
+func _beam_angles() -> Array:
+	if _beam_count <= 1:
+		return [_mouse_angle]
+	var out: Array = []
+	var half := _beam_fan * 0.5
+	for i in range(_beam_count):
+		out.append(_mouse_angle - half + _beam_fan * (float(i) / float(_beam_count - 1)))
+	return out
 
 # Applies the Throwable Beam Sword's tuned gameplay stats. Fires from the main aim joystick,
 # but aim-and-release-to-throw (like the grenade's equipment throw joystick) rather than
@@ -516,12 +864,31 @@ func set_thrown_stats(damage: int, radius: float, speed: float, barrel_offset: f
 	_is_beam = false
 	_is_thrown_melee = true
 	_is_launcher = false
+	_is_grapple = false
 	GameManager.melee_equipped = false
 	GameManager.thrown_melee_equipped = true
 	_thrown_damage = damage
 	_thrown_radius = radius
 	_thrown_speed = speed
+	_thrown_max_concurrent = 1 # cleared per equip; weapons with a fixed cadence re-set it
 	_thrown_barrel_offset = barrel_offset
+	set_thrown_emissions(0, 0.0, 0, 0.0, 150.0) # cleared per equip; variants re-set it
+
+# What a thrown weapon does mid-flight: Laser Boomerang sprays lasers as it spins, Pulsing
+# Boomerrang drops damage rings along its path. Both were in the data but unimplemented until now.
+var _thrown_orbit_damage := 0
+var _thrown_orbit_rate := 0.0
+var _thrown_ring_damage := 0
+var _thrown_ring_rate := 0.0
+var _thrown_ring_radius := 150.0
+
+func set_thrown_emissions(orbit_damage: int, orbit_rate: float, ring_damage: int,
+		ring_rate: float, ring_radius: float) -> void:
+	_thrown_orbit_damage = orbit_damage
+	_thrown_orbit_rate = orbit_rate
+	_thrown_ring_damage = ring_damage
+	_thrown_ring_rate = ring_rate
+	_thrown_ring_radius = ring_radius
 
 # Applies the Void Grenade Launcher's tuned gameplay stats. Uses the normal aim joystick and
 # _attack_timer/fire_rate cadence exactly like a ranged weapon — only what gets spawned
@@ -555,6 +922,7 @@ func set_sniper_stats(damage: int, charge_time: float, bullet_speed: float = -1.
 	_is_sniper = true
 	_is_thrown_melee = false
 	_is_launcher = false
+	_is_grapple = false
 	GameManager.melee_equipped = false
 	GameManager.thrown_melee_equipped = false
 	GameManager.sniper_equipped = true
@@ -624,6 +992,114 @@ func get_teleport_target(direction: Vector2, max_distance: float) -> Vector2:
 func teleport_to(pos: Vector2) -> void:
 	global_position = pos
 
+# ── Grapple weapons ──────────────────────────────────────────────────────────────────────────
+# Four weapons fire a hook rather than swinging or shooting: Grapple Spear (hit + pull), Spinning
+# Grapple (a staff spins at the hook tip, damaging along the whole path), Grapple Gloves (pull
+# then one punch) and Grapple Daggers (pull then four stabs). Targeting is deliberately loose
+# — the old Grapple Hook equipment used a strict raycast, but these pick the best enemy inside a
+# generous cone, so a rough flick of the joystick connects.
+const GRAPPLE_WEAPON_RANGE := 460.0
+const GRAPPLE_AIM_TOLERANCE := 0.61      # radians (~35 deg) either side of the aim
+const GRAPPLE_PULL_TIME := 0.22
+const GRAPPLE_PULL_STANDOFF := 74.0      # how close the enemy is dragged to
+const GRAPPLE_FOLLOWUP_INTERVAL := 0.12  # gap between follow-up punches/stabs
+const GRAPPLE_PATH_RADIUS := 46.0        # Grapple Staff's damage sweep either side of the line
+const GRAPPLE_LINE_DURATION := 0.18
+
+var _is_grapple := false
+var _grapple_damage := 0
+var _grapple_pull := false
+var _grapple_path_damage := false
+var _grapple_followups := 0
+var _grapple_line_timer := 0.0
+var _grapple_line_to := Vector2.ZERO
+
+func set_grapple_stats(damage: int, attack_rate: float, pull: bool, path_damage: bool,
+		followup_hits: int, use_joystick_aim: bool = true) -> void:
+	_stop_beam()
+	_stop_sniper()
+	_is_melee = false
+	_is_beam = false
+	_is_thrown_melee = false
+	_is_launcher = false
+	_is_grapple = true
+	GameManager.melee_equipped = not use_joystick_aim
+	GameManager.thrown_melee_equipped = false
+	_grapple_damage = damage
+	_attack_timer.wait_time = attack_rate
+	_grapple_pull = pull
+	_grapple_path_damage = path_damage
+	_grapple_followups = followup_hits
+	_reset_elemental_effects()
+
+# Best enemy inside the aim cone — nearest wins, so a crowd doesn't pick the far one.
+func _grapple_target() -> Node2D:
+	var best: Node2D = null
+	var best_score := INF
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e) or not e.has_method("take_damage"):
+			continue
+		var to_e: Vector2 = e.global_position - global_position
+		var d := to_e.length()
+		if d > GRAPPLE_WEAPON_RANGE:
+			continue
+		var off := absf(wrapf(to_e.angle() - _mouse_angle, -PI, PI))
+		if off > GRAPPLE_AIM_TOLERANCE:
+			continue
+		# Alignment dominates, distance breaks ties — so something dead ahead always wins over
+		# something equally close but off to one side.
+		var score := off * 1000.0 + d
+		if score < best_score:
+			best_score = score
+			best = e
+	return best
+
+func _try_grapple_attack() -> void:
+	_can_attack = false
+	_attack_timer.start()
+	AudioManager.play_swing()
+	var target := _grapple_target()
+	var reach: Vector2 = global_position + Vector2(GRAPPLE_WEAPON_RANGE, 0).rotated(_mouse_angle)
+	_grapple_line_to = target.global_position if target != null else reach
+	_grapple_line_timer = GRAPPLE_LINE_DURATION
+	queue_redraw()
+	# Grapple Staff: the spinning head damages everything near the line it travels, not just
+	# whatever it latches onto.
+	if _grapple_path_damage:
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if not is_instance_valid(e) or not e.has_method("take_damage"):
+				continue
+			if _distance_to_segment(e.global_position, global_position, _grapple_line_to) <= GRAPPLE_PATH_RADIUS + (e._radius if "_radius" in e else 0.0):
+				e.take_damage(_grapple_damage, (e.global_position - global_position).normalized(), 0.0)
+		GameManager.add_screen_shake(0.2)
+		return
+	if target == null:
+		return
+	target.take_damage(_grapple_damage, (target.global_position - global_position).normalized(), 0.0)
+	GameManager.add_screen_shake(clampf(float(_grapple_damage) / 18.0, 0.15, 0.5))
+	if _grapple_pull and target.has_method("grapple_pull_to"):
+		var dest: Vector2 = global_position + (target.global_position - global_position).normalized() * GRAPPLE_PULL_STANDOFF
+		target.grapple_pull_to(dest, GRAPPLE_PULL_TIME)
+	# Grapple Gloves / Grapple Daggers: land extra hits once the target has been dragged in.
+	var ref: WeakRef = weakref(target)
+	for i in range(_grapple_followups):
+		get_tree().create_timer(GRAPPLE_PULL_TIME + GRAPPLE_FOLLOWUP_INTERVAL * float(i)).timeout.connect(
+			func():
+				var t: Node2D = ref.get_ref() # weak: the target may have died before this lands
+				if t != null and is_instance_valid(t) and t.has_method("take_damage"):
+					t.take_damage(_grapple_damage)
+					_spawn_hit_spark(t.global_position)
+		)
+
+# Perpendicular distance from a point to a line segment — used for the spinning head's sweep.
+func _distance_to_segment(pt: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var len_sq := ab.length_squared()
+	if len_sq < 0.001:
+		return pt.distance_to(a)
+	var t := clampf((pt - a).dot(ab) / len_sq, 0.0, 1.0)
+	return pt.distance_to(a + ab * t)
+
 # ── Grapple Hook ─────────────────────────────────────────────────────────────────────────
 
 # Dashes the player toward target (a wall hit point, already pulled back GRAPPLE_WALL_CLEARANCE
@@ -654,20 +1130,29 @@ const PERFECT_TEXT_SCENE := preload("res://scenes/fx/perfect_text.tscn")
 # Triggered by the white dash button (GameManager.dash_requested). Blinks DASH_DISTANCE in the move
 # direction, granting a brief invincible/flashing window, then a cooldown. Perfect-dash checked first.
 func do_teleport_dash() -> void:
-	if not GameManager.dash_unlocked or _dash_cooldown > 0.0:
+	if not GameManager.dash_unlocked:
+		return
+	# During the execute window the dash becomes a finisher instead — and is free, so it works
+	# even mid-cooldown. That's deliberate: the window is earned by landing a melee kill.
+	if _try_execute_dash():
+		return
+	if _dash_cooldown > 0.0:
 		return
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if dir.length() < 0.1:
 		dir = _last_move_dir # dash even while standing still, using the last-faced direction
 	dir = dir.normalized()
-	if _is_incoming_threat(): # dodged something about to land → perfect dash
+	var perfect := _is_incoming_threat() # dodged something about to land → perfect dash
+	if perfect:
 		_do_perfect_dash()
 	global_position += dir * DASH_DISTANCE
 	_clamp_into_play_area()
 	_dash_iframe = DASH_IFRAME
 	_dash_flash_timer = DASH_FLASH_INTERVAL
 	_dash_flash_on = true
-	_dash_cooldown = DASH_COOLDOWN
+	# A perfect dash refunds the cooldown, so a well-read dodge chains straight into another.
+	# Not a full reset — a short floor stops one tap registering as two dashes.
+	_dash_cooldown = PERFECT_DASH_COOLDOWN if perfect else DASH_COOLDOWN
 	GameManager.dash_ready = false
 
 # Flashes the player sprite red for a moment after taking damage, fading back to normal — an
@@ -783,7 +1268,9 @@ func _try_attack() -> void:
 	# through the normal hold-to-fire path.
 	if not _can_attack or _is_sniper:
 		return
-	if _is_melee:
+	if _is_grapple:
+		_try_grapple_attack()
+	elif _is_melee:
 		_try_melee_attack()
 	elif _is_thrown_melee:
 		_try_throw_sword()
@@ -796,19 +1283,33 @@ func _try_ranged_attack() -> void:
 	if bullet_scene == null:
 		return
 	_can_attack = false
-	_attack_timer.start()
+	# Burst weapons cycle: fire_rate between shots in a burst, then burst_recharge after the last.
+	if _burst_count > 1:
+		_burst_left -= 1
+		if _burst_left <= 0:
+			_burst_left = _burst_count
+			_attack_timer.start(_burst_recharge)
+		else:
+			_attack_timer.start()
+	else:
+		_attack_timer.start()
+	if _shot_scatter_count > 1:
+		# Scatter: an odd fan centred on the aim, so the middle pellet always flies true.
+		var half := _shot_scatter_spread * 0.5
+		for i in range(_shot_scatter_count):
+			var t := 0.5 if _shot_scatter_count == 1 else float(i) / float(_shot_scatter_count - 1)
+			_fire_one(_spawn_point.global_position, _mouse_angle - half + _shot_scatter_spread * t)
+		return
 	if _barrel_offset > 0.0:
 		# Stagger the second barrel by half the cooldown so the two guns alternate
 		# (left, right, left, right...) instead of firing both lasers in lockstep.
-		var perp := Vector2.RIGHT.rotated(_mouse_angle + PI / 2.0) * _barrel_offset
-		var pos := _spawn_point.global_position
-		var angle := _mouse_angle
-		GameManager.spawn_bullet(bullet_scene, pos + perp, angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain)
-		get_tree().create_timer(_attack_timer.wait_time / 2.0).timeout.connect(
-			func(): GameManager.spawn_bullet(bullet_scene, pos - perp, angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain)
-		)
+		# The delayed shot reads the spawn point and aim angle when it actually FIRES, not when
+		# the volley started — capturing them up front made the second shot spawn wherever the
+		# player was half a cooldown ago, so it visibly trailed behind a moving player.
+		_fire_offset_barrel(1.0)
+		get_tree().create_timer(_attack_timer.wait_time / 2.0).timeout.connect(_fire_offset_barrel.bind(-1.0))
 	else:
-		GameManager.spawn_bullet(bullet_scene, _spawn_point.global_position, _mouse_angle, _shot_damage, -1.0, _shot_freeze_duration, _shot_knockback, _shot_wave_max_width, true, _shot_burn_dmg, _shot_burn_dur, _shot_chain)
+		_fire_one(_spawn_point.global_position, _mouse_angle)
 
 # Fires a grenade a fixed _launcher_distance in front of the player (not aimed at a target
 # like the equipment grenade or sniper) — same _attack_timer/fire_rate cooldown as ranged.
@@ -838,7 +1339,11 @@ func _try_launch_grenade() -> void:
 # rather than the usual _attack_timer cooldown — its "cooldown" is however long the round
 # trip actually takes, not a fixed duration.
 func _try_throw_sword() -> void:
-	if _thrown_active_count > 0:
+	# Normally one at a time: the weapon's cooldown IS the round trip. A weapon with its own fixed
+	# cadence (Cannon Boomerang, which auto-fires on a 0.7s charge) sets _thrown_max_concurrent
+	# above 1 so its timer isn't silently overridden by a flight that outlasts it. The cap keeps
+	# the screen from filling if the flight time ever runs much longer than the cadence.
+	if _thrown_active_count >= _thrown_max_concurrent:
 		return
 	_can_attack = false
 	var origin := _spawn_point.global_position
@@ -857,8 +1362,13 @@ func _try_throw_sword() -> void:
 func _launch_sword(origin: Vector2, direction: Vector2) -> void:
 	_thrown_active_count += 1
 	GameManager.record_melee_attempt() # thrown-melee counts toward melee accuracy
+	# _charge_scale is 1.0 for everything except a part-charged partial-release throw.
+	var dmg := maxi(1, int(round(float(_thrown_damage) * _charge_scale)))
+	var spd := _thrown_speed * _charge_scale
 	var sword := GameManager.spawn_thrown_weapon(THROWN_WEAPON_SCENE, _weapon.texture,
-		origin, direction, self, _thrown_damage, _thrown_radius, _thrown_speed)
+		origin, direction, self, dmg, _thrown_radius, spd,
+		bullet_scene, _thrown_orbit_damage, _thrown_orbit_rate,
+		_thrown_ring_damage, _thrown_ring_rate, _thrown_ring_radius)
 	if sword:
 		sword.returned.connect(_on_sword_returned)
 	else:
@@ -882,6 +1392,14 @@ func _try_melee_attack() -> void:
 	_can_attack = false
 	_attack_timer.start()
 	AudioManager.play_swing()
+	# Ring-only weapons (War Hammer, Pulse Hammer, Hammer/Power/Energy/Grapple Hammer) have no
+	# melee_range, so there's no cone to swing — the slam is the whole attack.
+	if _melee_range <= 0.0:
+		_spawn_pulse_ring()
+		_fire_melee_projectiles() # Dagger Hammer's radial knife spray
+		if not _melee_no_lock:
+			_melee_lock_timer = MELEE_RECOVERY
+		return
 	var duration := clampf(_attack_timer.wait_time * 0.5, 0.05, 0.25)
 	# The weapon swing plays faster than the hit window (75% faster) — a snappier visual and a
 	# shorter movement lock — while the hit window + telegraph keep their full duration so detection
@@ -899,6 +1417,10 @@ func _try_melee_attack() -> void:
 	_spawn_slash_arc(_mouse_angle) # independent weapon-arc trail
 	var angle := _mouse_angle
 	_start_melee_swing(angle, duration)
+	# Cone + ring weapons (Staff Hammer, Whip Hammer): the swing lands normally and the ring
+	# detonates out at the far end of it rather than under the player.
+	_spawn_pulse_ring()
+	_fire_melee_projectiles() # glove/dagger hybrids throw something on each swing
 	# Extra staggered strikes for dual-wielded melee weapons (e.g. Daggers): each lands
 	# a beat after the previous, using the aim captured at swing start — same stagger
 	# pattern as the ranged dual-barrel weapons' second shot. Each gets its own active
@@ -942,6 +1464,12 @@ func _tick_melee_swings(delta: float) -> void:
 				else:
 					enemy.take_damage(_melee_damage, knockback_dir, _melee_knockback, _melee_stun)
 				swing["hit"][enemy] = true
+				_note_melee_hit(enemy) # aim magnetises to whatever the swing connected with
+				# A melee kill opens the execute window (see _open_execute_window) — checked after
+				# take_damage, since that's what may have killed it.
+				if not is_instance_valid(enemy) or enemy.is_queued_for_deletion() \
+						or ("health" in enemy and enemy.health <= 0):
+					_open_execute_window()
 				_spawn_hit_spark(enemy.global_position) # impact sparks at each enemy hit
 				# Burn DOT: strongest of the weapon's own burn (Fire Daggers) and the Melee Fire+ relic.
 				var aburn := int(ItemRegistry.artifact_num("melee_burn_damage", 0.0))
@@ -965,7 +1493,10 @@ func _tick_melee_swings(delta: float) -> void:
 					# Gloves skip it to stay fluid; shake/sound/sparks don't impede movement, so they stay.
 					if not _melee_no_lock:
 						GameManager.hitstop(HITSTOP_SCALE, HITSTOP_DURATION)
-					GameManager.add_screen_shake(clampf(float(_melee_damage) / 18.0, 0.15, 0.55))
+					# shake_override lets a weapon pin its shake instead of deriving it from damage —
+					# Nova Gloves hits for 15 but should kick like the 8-damage Large Warhammer.
+					GameManager.add_screen_shake(_melee_shake_override if _melee_shake_override > 0.0 \
+						else clampf(float(_melee_damage) / 18.0, 0.15, 0.55))
 					AudioManager.play_impact()
 					# NOTE: Input.vibrate_handheld() segfaults (SIGSEGV) in the SwiftGodotKit embedded
 					# host — its iOS haptic backend isn't initialised here. Left out for now; the
@@ -1026,17 +1557,77 @@ func _draw_chain_bolts() -> void:
 # Active contact also clears any leftover burn on that enemy — burn is only meant to apply
 # once the hitbox is fully off, not layered on top of live beam damage.
 func _tick_beam(delta: float) -> void:
+	# Post-blast dead time: the beam is fully off, dealing no damage and drawing nothing, so the
+	# blast reads as a discrete event rather than a bump in a continuous stream. Whatever the beam
+	# was touching starts burning, exactly as if the trigger had been let go.
+	if _beam_cooldown_left > 0.0:
+		_beam_cooldown_left -= delta
+		if _beam_active:
+			_stop_beam()
+		GameManager.weapon_charge = 0.0
+		queue_redraw()
+		return
 	_beam_active = true
 	var half_arc := deg_to_rad(_beam_arc_degrees / 2.0)
+	var angles := _beam_angles()
 	var still_contacted := {}
+	# Side shots: ordinary bullets fired alongside the beam (Beam Laser Blaster).
+	if _beam_side_damage > 0 and _beam_side_rate > 0.0:
+		_beam_side_accum += delta
+		while _beam_side_accum >= _beam_side_rate:
+			_beam_side_accum -= _beam_side_rate
+			# Two lasers per emission, launched half an orbit apart, so a true double helix winds
+			# around the beam at every instant rather than one strand wobbling side to side.
+			# Successive pairs start a quarter turn on from the last, which keeps the braid moving
+			# instead of every pair tracing the same two lines.
+			_beam_side_flip = not _beam_side_flip
+			var base_phase: float = (PI * 0.5) if _beam_side_flip else 0.0
+			for strand in 2:
+				GameManager.spawn_bullet(bullet_scene, _spawn_point.global_position, _mouse_angle,
+					_beam_side_damage, _beam_side_speed, 0.0, 0.0, 0.0, true,
+					0, 0.0, false, false, 0, false, 0, 0.0, 0.0,
+					_beam_side_spiral_radius, _beam_side_spiral_rate, base_phase + PI * float(strand))
+	# Pulse ball: a heavier hit travelling down the beam (Beam Cannon). Modelled as a single damage
+	# tick to everything the beam currently touches rather than a separate travelling body — the
+	# beam is instantaneous, so a ball flying along it would only ever hit the same targets.
+	var pulse_now := false
+	var period := _beam_pulse_period()
+	if _beam_pulse_damage > 0 and period > 0.0:
+		_beam_pulse_accum += delta
+		GameManager.weapon_charge = clampf(_beam_pulse_accum / period, 0.0, 1.0)
+		if _beam_pulse_accum >= period:
+			_beam_pulse_accum = 0.0
+			pulse_now = true
+			GameManager.weapon_charge = 0.0
+			_charge_flash_timer = CHARGE_FLASH_DURATION # same "fully charged" flash
+			GameManager.add_screen_shake(0.28)
+			_beam_cooldown_left = _beam_pulse_cooldown
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		var to_enemy: Vector2 = enemy.global_position - global_position
 		var dist := to_enemy.length()
 		if dist > _beam_range:
 			continue
-		var angle_diff := absf(wrapf(to_enemy.angle() - _mouse_angle, -PI, PI))
-		if angle_diff > half_arc:
+		# Touched if it falls inside ANY of the beams in the fan. A straight beam tests the
+		# perpendicular distance to its line (plus the enemy's own body radius, same fix as the
+		# fire patch); a cone tests the angle.
+		var er: float = enemy._radius if "_radius" in enemy else 0.0
+		var in_any := false
+		for a in angles:
+			if _beam_width > 0.0:
+				var along: float = to_enemy.dot(Vector2.RIGHT.rotated(a))
+				if along < 0.0 or along > _beam_range:
+					continue
+				var perp: float = absf(to_enemy.dot(Vector2.RIGHT.rotated(a + PI / 2.0)))
+				if perp <= _beam_width * 0.5 + er:
+					in_any = true
+					break
+			elif absf(wrapf(to_enemy.angle() - a, -PI, PI)) <= half_arc:
+				in_any = true
+				break
+		if not in_any:
 			continue
+		if pulse_now and enemy.has_method("take_damage"):
+			enemy.take_damage(_beam_pulse_damage)
 		if enemy.has_method("clear_burn"):
 			enemy.clear_burn()
 		var contact_time: float = _beam_contact.get(enemy, 0.0) + delta
@@ -1047,7 +1638,7 @@ func _tick_beam(delta: float) -> void:
 		still_contacted[enemy] = contact_time
 	for enemy in _beam_contact:
 		if not still_contacted.has(enemy) and is_instance_valid(enemy) and enemy.has_method("apply_burn"):
-			enemy.apply_burn(_beam_burn_damage, _beam_burn_duration)
+			enemy.apply_burn(_beam_burn_damage, _beam_burn_duration, _beam_burn_tick)
 	_beam_contact = still_contacted
 	queue_redraw()
 
@@ -1058,7 +1649,7 @@ func _stop_beam() -> void:
 		return
 	for enemy in _beam_contact:
 		if is_instance_valid(enemy) and enemy.has_method("apply_burn"):
-			enemy.apply_burn(_beam_burn_damage, _beam_burn_duration)
+			enemy.apply_burn(_beam_burn_damage, _beam_burn_duration, _beam_burn_tick)
 	_beam_contact.clear()
 	_beam_active = false
 	queue_redraw()
@@ -1116,21 +1707,29 @@ func _flash_melee_hitbox(duration: float) -> void:
 const SHIELD_OUTLINE_RADIUS := 26.0
 
 func _draw() -> void:
+	_draw_weapon_charge()
+	_draw_grapple_line()
 	# Active shield: ring the player in the shield type's colour (glow + crisp outline).
 	if _shield_active and _shield_hp > 0.0:
 		draw_arc(Vector2.ZERO, SHIELD_OUTLINE_RADIUS, 0.0, TAU, 40, Color(_shield_color, 0.22), 7.0)
 		draw_arc(Vector2.ZERO, SHIELD_OUTLINE_RADIUS, 0.0, TAU, 40, Color(_shield_color, 0.95), 3.0)
 	if _show_hitbox:
-		var half_arc := deg_to_rad(_melee_arc_degrees / 2.0)
-		const SEGMENTS := 16
-		var points := PackedVector2Array()
-		points.append(Vector2.ZERO)
-		for i in range(SEGMENTS + 1):
-			var a := _hitbox_angle - half_arc + (2.0 * half_arc) * (float(i) / float(SEGMENTS))
-			points.append(Vector2(_melee_range, 0.0).rotated(a))
-		draw_colored_polygon(points, Color(1.0, 0.9, 0.2, 0.28))
-		for i in range(points.size() - 1):
-			draw_line(points[i], points[i + 1], Color(1.0, 0.9, 0.2, 0.7), 2.0)
+		# A radial weapon (Nova Gloves) sweeps the full 360, where the wedge fan degenerates — its
+		# first and last points coincide and triangulation fails. Draw it as a disc instead.
+		if _melee_arc_degrees >= 359.0:
+			draw_circle(Vector2.ZERO, _melee_range, Color(1.0, 0.9, 0.2, 0.28))
+			draw_arc(Vector2.ZERO, _melee_range, 0.0, TAU, 40, Color(1.0, 0.9, 0.2, 0.7), 2.0)
+		else:
+			var half_arc := deg_to_rad(_melee_arc_degrees / 2.0)
+			const SEGMENTS := 16
+			var points := PackedVector2Array()
+			points.append(Vector2.ZERO)
+			for i in range(SEGMENTS + 1):
+				var a := _hitbox_angle - half_arc + (2.0 * half_arc) * (float(i) / float(SEGMENTS))
+				points.append(Vector2(_melee_range, 0.0).rotated(a))
+			draw_colored_polygon(points, Color(1.0, 0.9, 0.2, 0.28))
+			for i in range(points.size() - 1):
+				draw_line(points[i], points[i + 1], Color(1.0, 0.9, 0.2, 0.7), 2.0)
 	if _beam_active:
 		_draw_beam()
 	if not _chain_bolts.is_empty():
@@ -1156,6 +1755,57 @@ func _draw() -> void:
 # — a short flick barely moves the circle, a full drag still reaches the full range — so it's
 # much easier to land on a specific nearby spot instead of every small twitch of the thumb
 # jumping the circle a huge distance across the map.
+# Charge weapons: a ball of energy gathering at the barrel, growing and brightening as the
+# wind-up completes, with a spark ring that tightens onto it at full charge. Drawn in local space
+# at the barrel so it tracks the aim automatically. Nothing is drawn at rest.
+const CHARGE_GLOW_MAX_RADIUS := 15.0
+func _draw_weapon_charge() -> void:
+	# The flash outlives the charge by a moment on a full-power release, so it draws first and
+	# independently of the glow's accum check.
+	if _charge_flash_timer > 0.0:
+		var f := clampf(_charge_flash_timer / CHARGE_FLASH_DURATION, 0.0, 1.0)
+		var fat := _spawn_point.position
+		var fr := CHARGE_GLOW_MAX_RADIUS * (1.6 + 3.0 * (1.0 - f))
+		draw_circle(fat, fr, Color(1.0, 1.0, 0.95, 0.40 * f))
+		draw_arc(fat, fr, 0.0, TAU, 32, Color(1.0, 1.0, 1.0, 0.95 * f), 3.0)
+	if _shot_charge_time <= 0.0 or _shot_charge_accum <= 0.0:
+		return
+	var t := clampf(_shot_charge_accum / _shot_charge_time, 0.0, 1.0)
+	var at := _spawn_point.position
+	var r := CHARGE_GLOW_MAX_RADIUS * (0.28 + 0.72 * t)
+	# Colour runs from a dim energy blue to near-white as it fills, so "ready" reads at a glance.
+	var core := Color(0.6, 0.9, 1.0).lerp(Color(1.0, 1.0, 0.92), t)
+	var pulse := 1.0 + 0.10 * sin(Time.get_ticks_msec() / 1000.0 * TAU * 8.0) * t
+	draw_circle(at, r * 2.1 * pulse, Color(core, 0.13 * t))       # outer bloom
+	draw_circle(at, r * 1.35 * pulse, Color(core, 0.28 * t))      # mid glow
+	draw_circle(at, r * pulse, Color(core, 0.55 + 0.35 * t))      # hot core
+	# Converging sparks — they sweep inward as the charge completes.
+	var spokes := 6
+	for i in range(spokes):
+		var a := TAU * float(i) / float(spokes) + t * 3.0
+		var outer := r * (3.4 - 2.0 * t)
+		var inner := r * (2.2 - 1.1 * t)
+		draw_line(at + Vector2(outer, 0).rotated(a), at + Vector2(inner, 0).rotated(a), Color(core, 0.5 * t), 2.0)
+	if t >= 1.0:
+		draw_arc(at, r * 1.7, 0.0, TAU, 24, Color(1.0, 1.0, 0.9, 0.9), 2.0) # "ready" ring
+
+# The chain a grapple weapon throws — a segmented line out to whatever it latched onto, fading
+# over GRAPPLE_LINE_DURATION. Drawn in local space so it tracks the player if they move.
+func _draw_grapple_line() -> void:
+	if _grapple_line_timer <= 0.0:
+		return
+	var a := clampf(_grapple_line_timer / GRAPPLE_LINE_DURATION, 0.0, 1.0)
+	var to := to_local(_grapple_line_to)
+	draw_line(Vector2.ZERO, to, Color(0.72, 0.76, 0.85, 0.85 * a), 3.0)
+	# Links along the chain, so it reads as a chain rather than a laser.
+	var links := int(to.length() / 18.0)
+	for i in range(1, maxi(links, 1)):
+		var p: Vector2 = to * (float(i) / float(maxi(links, 1)))
+		draw_circle(p, 3.0, Color(0.88, 0.90, 0.96, 0.8 * a))
+	draw_circle(to, 7.0, Color(0.95, 0.85, 0.5, 0.9 * a)) # the hook head
+	if _grapple_path_damage:
+		draw_arc(to, GRAPPLE_PATH_RADIUS, 0.0, TAU, 24, Color(1.0, 0.9, 0.35, 0.5 * a), 2.0)
+
 func _draw_teleport_preview() -> void:
 	var max_dist: float = GameManager.aim_preview_max_distance
 	if GameManager.equipment_scaleable_throw:
@@ -1198,16 +1848,41 @@ func _draw_aim_preview() -> void:
 # from _tick_beam each tick) so it tracks the live aim angle exactly like the beam's own
 # hit detection does.
 func _draw_beam() -> void:
+	# One cone per beam in the fan (a plain beam is a fan of one). Cooler and thinner when the
+	# weapon fires several, so three beams don't read as one solid wall of flame.
 	var half_arc := deg_to_rad(_beam_arc_degrees / 2.0)
+	var multi := _beam_count > 1
+	var fill := Color(0.45, 0.85, 1.0, 0.45) if multi else Color(1.0, 0.45, 0.1, 0.6)
+	var edge := Color(0.75, 0.95, 1.0, 0.85) if multi else Color(1.0, 0.6, 0.15, 0.85)
 	const SEGMENTS := 16
-	var points := PackedVector2Array()
-	points.append(Vector2.ZERO)
-	for i in range(SEGMENTS + 1):
-		var a := _mouse_angle - half_arc + (2.0 * half_arc) * (float(i) / float(SEGMENTS))
-		points.append(Vector2(_beam_range, 0.0).rotated(a))
-	draw_colored_polygon(points, Color(1.0, 0.45, 0.1, 0.6))
-	for i in range(points.size() - 1):
-		draw_line(points[i], points[i + 1], Color(1.0, 0.6, 0.15, 0.85), 2.0)
+	for centre in _beam_angles():
+		if _beam_width > 0.0:
+			# Straight beam: a constant-width bar down the aim, with a hot core line.
+			var dir := Vector2.RIGHT.rotated(centre)
+			var perp := Vector2.RIGHT.rotated(centre + PI / 2.0) * (_beam_width * 0.5)
+			var far := dir * _beam_range
+			draw_colored_polygon(PackedVector2Array([perp, far + perp, far - perp, -perp]), fill)
+			draw_line(perp, far + perp, edge, 2.0)
+			draw_line(-perp, far - perp, edge, 2.0)
+			draw_line(Vector2.ZERO, far, Color(edge, 0.9), maxf(_beam_width * 0.22, 2.0))
+			continue
+		var points := PackedVector2Array()
+		points.append(Vector2.ZERO)
+		for i in range(SEGMENTS + 1):
+			var a: float = centre - half_arc + (2.0 * half_arc) * (float(i) / float(SEGMENTS))
+			points.append(Vector2(_beam_range, 0.0).rotated(a))
+		draw_colored_polygon(points, fill)
+		for i in range(points.size() - 1):
+			draw_line(points[i], points[i + 1], edge, 2.0)
+	# Beam Cannon: a bright core travelling down the beam as the blast winds up — reaching the
+	# muzzle end exactly as it fires, so the beam itself is the charge meter. Brightens and grows
+	# as it fills.
+	var pulse_period := _beam_pulse_period()
+	if _beam_pulse_damage > 0 and pulse_period > 0.0:
+		var t := clampf(_beam_pulse_accum / pulse_period, 0.0, 1.0)
+		var at := Vector2(_beam_range * t, 0.0).rotated(_mouse_angle)
+		draw_circle(at, 11.0 + 7.0 * t, Color(1.0, 0.95, 0.7, 0.30 + 0.25 * t))
+		draw_circle(at, 6.0 + 4.0 * t, Color(1.0, 1.0, 0.9, 0.95))
 
 # Solid green cone, redrawn every frame the Force Push Bracelet channels (queue_redraw() is
 # called from _tick_force_push each tick) — same construction as _draw_beam, just green and
@@ -1515,3 +2190,192 @@ func toggle_shield() -> void:
 		return
 	_shield_active = not _shield_active
 	GameManager.shield_active = _shield_active
+
+
+func set_thrown_max_concurrent(n: int) -> void:
+	_thrown_max_concurrent = maxi(1, n)
+
+
+# Clears the cross-branch weapon state that only SOME equip paths set. Called once at the top of
+# ItemRegistry.equip_on_player, before any setter runs, so a field a weapon doesn't mention can
+# never carry over from the last one. Without this a melee weapon equipped after a charge weapon
+# inherited its charge_time and ran _tick_charge instead of swinging — swapping weapons mid-run
+# (fusion, the sandbox) is exactly when that bites.
+func reset_weapon_modifiers() -> void:
+	_shot_charge_time = 0.0
+	_shot_charge_accum = 0.0
+	_charge_partial_release = false
+	_charge_flashed = false
+	_charge_flash_timer = 0.0
+	_charge_scale = 1.0
+	GameManager.weapon_charge = 0.0
+	GameManager.weapon_charge_time = 0.0
+	_thrown_max_concurrent = 1
+	_shot_bolt_style = false
+	_shot_chain_count = 1
+	_shot_chain_frac = 0.5
+	_burst_count = 0
+	_burst_recharge = 0.0
+	_burst_left = 0
+	_shot_max_range = 0.0
+	_beam_burn_tick = 0.0
+	_beam_side_speed = -1.0
+	_beam_side_spiral_radius = 0.0
+	_beam_side_spiral_rate = 0.0
+	_beam_pulse_cooldown = 0.0
+	_beam_cooldown_left = 0.0
+	_melee_shake_override = 0.0
+	_clear_melee_lock()
+	_execute_timer = 0.0
+	GameManager.execute_ready = false
+
+
+# One barrel of a dual-barrel weapon, `side` being +1 or -1 across the aim. Always reads live
+# position/angle so a delayed barrel tracks the player instead of trailing them.
+func _fire_offset_barrel(side: float) -> void:
+	var perp := Vector2.RIGHT.rotated(_mouse_angle + PI / 2.0) * (_barrel_offset * side)
+	_fire_one(_spawn_point.global_position + perp, _mouse_angle)
+
+# ── Melee aim assist ─────────────────────────────────────────────────────────────────────────
+# Once a swing connects, the aim gently magnetises to whatever it hit for MELEE_AIM_TIME, and
+# every further hit refreshes that. The pull is a partial lerp rather than a snap, so a combo
+# tracks a moving target while the player keeps circling instead of sliding off it after the
+# first hit — the swing follows the fight rather than the stick.
+#
+# Three things keep it from taking control away:
+#   · it only engages within MELEE_AIM_ARC of where the player is already aiming, so a
+#     deliberate turn to a different enemy is never fought,
+#   · it releases past MELEE_AIM_RANGE_MULT of the weapon's reach, so a target you have walked
+#     away from lets go, and
+#   · it does nothing at all for ranged weapons.
+const MELEE_AIM_TIME       := 1.1   # seconds of stickiness after the last connected hit
+const MELEE_AIM_ARC        := deg_to_rad(75.0) # only assists within this of the current aim
+const MELEE_AIM_RANGE_MULT := 2.2   # releases past this multiple of melee range
+const MELEE_AIM_STRENGTH   := 9.0   # how fast the bias builds toward the target
+const MELEE_AIM_RELEASE    := 6.0   # how fast it unwinds once the lock drops
+
+var _melee_target: Node2D = null
+var _melee_aim_timer := 0.0
+var _melee_aim_bias := 0.0 # persistent angular offset added on top of the stick
+
+# Called from the melee hit loop for every enemy a swing connects with.
+func _note_melee_hit(enemy: Node2D) -> void:
+	_melee_target = enemy
+	_melee_aim_timer = MELEE_AIM_TIME
+
+func _clear_melee_lock() -> void:
+	_melee_target = null
+	_melee_aim_timer = 0.0
+
+func _apply_melee_aim_assist(delta: float) -> void:
+	# The aim joystick rewrites _mouse_angle every frame, so a per-frame nudge would be erased as
+	# fast as it was applied. Instead the assist keeps a persistent BIAS — an angular offset that
+	# eases toward "whatever would point at the target" and is added on top of the stick. That
+	# accumulates into real tracking while still being an offset the player can overpower simply
+	# by turning, and it decays back to zero when the lock ends rather than snapping straight.
+	var stick := _mouse_angle
+	var want_bias := 0.0
+	var active := false
+	if _melee_aim_timer > 0.0:
+		_melee_aim_timer -= delta
+		if _is_melee and _melee_target != null and is_instance_valid(_melee_target) \
+				and _melee_aim_timer > 0.0:
+			var to_target: Vector2 = _melee_target.global_position - global_position
+			var dist := to_target.length()
+			var diff := wrapf(to_target.angle() - stick, -PI, PI)
+			# Release if they have walked away from it, or deliberately turned elsewhere.
+			if dist >= 1.0 and dist <= _melee_range * MELEE_AIM_RANGE_MULT \
+					and absf(diff) <= MELEE_AIM_ARC:
+				want_bias = diff
+				active = true
+		if not active:
+			_clear_melee_lock()
+	# Ease toward the wanted bias while locked; unwind toward zero once the lock drops.
+	var rate: float = MELEE_AIM_STRENGTH if active else MELEE_AIM_RELEASE
+	_melee_aim_bias = lerp_angle(_melee_aim_bias, want_bias, clampf(rate * delta, 0.0, 1.0))
+	if absf(_melee_aim_bias) < 0.002 and not active:
+		_melee_aim_bias = 0.0
+		return
+	_mouse_angle = wrapf(stick + _melee_aim_bias, -PI, PI)
+
+
+# ── Melee execute chain ──────────────────────────────────────────────────────────────────────
+# Killing something in melee opens a short window (the dash button glows yellow) during which the
+# dash becomes a finisher: blink behind the next enemy and swing immediately. It turns a kill into
+# the setup for the next one, so a melee run reads as a chain rather than a series of separate
+# approaches. Deliberately melee-only — a ranged build already picks its next target for free.
+const EXECUTE_WINDOW    := 1.0   # seconds the follow-up stays available
+const EXECUTE_RANGE     := 520.0 # farthest target worth blinking to
+const EXECUTE_BEHIND    := 34.0  # how far behind the target the player lands
+
+var _execute_timer := 0.0
+
+func _open_execute_window() -> void:
+	if not _is_melee or not GameManager.dash_unlocked:
+		return
+	if _next_execute_target() == null:
+		return # nothing left to chain into
+	_execute_timer = EXECUTE_WINDOW
+	GameManager.execute_ready = true
+
+# Nearest living enemy other than whatever just died, within EXECUTE_RANGE.
+func _next_execute_target() -> Node2D:
+	var best: Node2D = null
+	var best_d := EXECUTE_RANGE
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e) or e.is_queued_for_deletion():
+			continue
+		if "health" in e and e.health <= 0:
+			continue
+		var d: float = global_position.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+func _tick_execute_window(delta: float) -> void:
+	if _execute_timer <= 0.0:
+		return
+	_execute_timer -= delta
+	# Also closes if the last enemy dies during the window, so the glow never lies.
+	if _execute_timer <= 0.0 or not _is_melee or _next_execute_target() == null:
+		_execute_timer = 0.0
+		GameManager.execute_ready = false
+
+# Blink behind the target and swing. Returns false if there was nothing to execute, so the caller
+# can fall through to an ordinary dash.
+func _try_execute_dash() -> bool:
+	if _execute_timer <= 0.0 or not _is_melee:
+		return false
+	var target := _next_execute_target()
+	if target == null:
+		_execute_timer = 0.0
+		GameManager.execute_ready = false
+		return false
+	# Land on the far side of the target, along the line the player is approaching from, then face
+	# back into it so the follow-up swing connects.
+	var approach: Vector2 = (target.global_position - global_position)
+	if approach.length() < 1.0:
+		approach = Vector2.RIGHT.rotated(_mouse_angle)
+	approach = approach.normalized()
+	global_position = target.global_position + approach * EXECUTE_BEHIND
+	_clamp_into_play_area()
+	_mouse_angle = (-approach).angle()
+	_melee_aim_bias = 0.0
+	_note_melee_hit(target) # keep the aim glued to it through the follow-up
+	_spawn_point.position = Vector2(22, 0).rotated(_mouse_angle)
+	# The finisher is free: it ignores the attack cooldown, which is the whole point of the window.
+	_can_attack = true
+	_attack_timer.stop()
+	_try_melee_attack()
+	_dash_iframe = DASH_IFRAME # brief invulnerability, same as a normal dash
+	_dash_flash_timer = DASH_FLASH_INTERVAL
+	_dash_flash_on = true
+	GameManager.add_screen_shake(0.3)
+	_execute_timer = 0.0
+	GameManager.execute_ready = false
+	return true
+
+
+func set_run_speed_multiplier(m: float) -> void:
+	_run_speed_multiplier = maxf(m, 0.1)

@@ -7,12 +7,18 @@ const CARD_GAP   := 8
 const CARD_SLOT  := CARD_W + CARD_GAP  # 118
 const WINNER_IDX := 42
 
+const T := preload("res://scenes/ui/ui_theme.gd")
+const HOLO_RING := preload("res://scenes/ui/holo_ring.gd")
+
+# Card backing per rarity — a dark slab tinted toward the rarity hue rather than the rarity hue
+# itself, so the icon on top stays the brightest thing on the card (see the reference: the panel
+# is dark, the content glows).
 const RARITY_COLORS := {
-	"common":    Color(0.22, 0.22, 0.27),
-	"uncommon":  Color(0.07, 0.32, 0.11),
-	"rare":      Color(0.07, 0.14, 0.48),
-	"epic":      Color(0.28, 0.07, 0.42),
-	"legendary": Color(0.50, 0.35, 0.00),
+	"common":    Color(0.10, 0.12, 0.16),
+	"uncommon":  Color(0.05, 0.18, 0.11),
+	"rare":      Color(0.05, 0.11, 0.26),
+	"epic":      Color(0.16, 0.06, 0.24),
+	"legendary": Color(0.24, 0.17, 0.03),
 }
 
 @onready var _purchase:       Control     = $PurchaseScreen
@@ -30,7 +36,9 @@ const RARITY_COLORS := {
 @onready var _result_name:    Label       = $ResultScreen/VBox/ResultCard/CardVBox/ItemName
 
 # Artifacts are no longer bought from crates — they're found during the run instead.
-const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"], ["medical", "🧰  Medical"]]
+# Elemental crates yield boosts rather than items — they go to SaveManager.boost_inventory instead
+# of the normal inventory (see _award). Same reel/spin presentation as every other crate.
+const CRATES := [["weapon", "🗡️  Weapons"], ["equipment", "🎒  Equipment"], ["medical", "🧰  Medical"], ["elemental", "⚡  Elemental"]]
 
 var _spinning := false        # true while the reel is scrolling — see _process ticker
 var _spin_last_tick := -1
@@ -40,6 +48,7 @@ var _ff_label: Label = null   # transparent ⏩ watermark shown while fast-forwa
 
 func _ready() -> void:
 	SceneManager.add_glass_background(self)
+	_apply_holo_theme()
 	$PurchaseScreen/VBox/Header/BtnBack.pressed.connect(SceneManager.go_to_menu)
 	# Replace the single buy button with one per crate type, keeping it as a hidden template.
 	_btn_buy.visible = false
@@ -108,12 +117,34 @@ func _build_track(winner: Dictionary, crate: String) -> void:
 func _make_card(item: Dictionary) -> Control:
 	var card := Control.new()
 	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	var rarity: String = str(item.get("rarity", ""))
+	var accent: Color = T.rarity_color(rarity)
 
-	var bg := ColorRect.new()
-	bg.position = Vector2.ZERO
-	bg.size = Vector2(CARD_W, CARD_H)
-	bg.color = RARITY_COLORS.get(item.get("rarity", ""), Color(0.2, 0.2, 0.2)) as Color
-	card.add_child(bg)
+	# Dark slab tinted toward the rarity, with a lit border and corner brackets — the item icon
+	# on top stays the brightest thing on the card.
+	var panel := PanelContainer.new()
+	panel.position = Vector2.ZERO
+	panel.size = Vector2(CARD_W, CARD_H)
+	panel.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = RARITY_COLORS.get(rarity, Color(0.10, 0.12, 0.16)) as Color
+	sb.border_color = Color(accent, 0.75)
+	sb.set_border_width_all(1)
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(8)
+	sb.shadow_color = Color(accent, 0.25)
+	sb.shadow_size = 6
+	panel.add_theme_stylebox_override("panel", sb)
+	card.add_child(panel)
+
+	var deco := Control.new()
+	deco.set_anchors_preset(Control.PRESET_FULL_RECT)
+	deco.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(deco)
+	deco.draw.connect(func():
+		T.draw_brackets(deco, Rect2(3, 3, CARD_W - 6, CARD_H - 6), Color(accent, 0.85), 11.0, 1.5)
+	)
 
 	var tex := TextureRect.new()
 	tex.position = Vector2.ZERO
@@ -148,6 +179,8 @@ func _animate_spin(winner: Dictionary) -> void:
 		_spinning = false
 		_spin_tween = null
 		_show_ff_watermark(false)
+		if is_instance_valid(_spin_ring):
+			_spin_ring.flare() # the emblem pulses as the readout locks on
 		_show_result(winner)
 	)
 
@@ -191,14 +224,26 @@ func _process(_delta: float) -> void:
 # ── Result ────────────────────────────────────────────────────────────────────
 
 func _show_result(winner: Dictionary) -> void:
-	# Artifacts go to their own (non-tradeable) inventory; everything else to the shared inventory.
+	# Three destinations: artifacts and elemental boosts each have their own (non-tradeable)
+	# inventory, everything else goes to the shared one. A boost is identified by carrying the
+	# melee/ranged effect pair rather than a `type`, since it isn't an equippable item.
 	if winner.get("type", "") == "artifact":
 		SaveManager.add_artifact(winner)
+	elif winner.has("melee") and winner.has("ranged"):
+		SaveManager.add_boost(winner)
 	else:
 		SaveManager.add_to_inventory(winner)
 	_purchase.visible = false
 	_spin.visible     = false
 	_result.visible   = true
+	# Materialise rather than cut — the card scales up from slightly small as it fades in.
+	_result.modulate.a = 0.0
+	_result_card.pivot_offset = _result_card.size * 0.5
+	_result_card.scale = Vector2(0.88, 0.88)
+	var rt := create_tween()
+	rt.tween_property(_result, "modulate:a", 1.0, 0.25)
+	rt.parallel().tween_property(_result_card, "scale", Vector2.ONE, 0.42) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	var rarity: String = winner.get("rarity", "common")
 	_result_rarity.text = rarity.capitalize()
@@ -242,3 +287,66 @@ func _build_odds_list() -> void:
 		hbox.add_child(lbl_pct)
 
 		_odds_list.add_child(hbox)
+
+# ── Holo presentation ────────────────────────────────────────────────────────────────────────
+# The crate screens are styled as projected console panels: dark translucent slabs with a lit top
+# edge, cyan linework, and a rotating emblem behind the reel. The spin itself is reframed as a
+# scanning readout rather than a slot machine — the reference's language is diagnostic displays,
+# not casino reels.
+
+func _apply_holo_theme() -> void:
+	for card in [$PurchaseScreen/VBox/KeyCard, $PurchaseScreen/VBox/OddsCard, _result_card]:
+		if card != null and is_instance_valid(card):
+			card.add_theme_stylebox_override("panel", T.panel_box(T.CYAN, T.PANEL_GLASS, 12))
+	for scr in [$PurchaseScreen, $SpinScreen, $ResultScreen]:
+		T.style_all_buttons(scr, T.CYAN)
+	$PurchaseScreen/VBox/Header/Title.add_theme_color_override("font_color", T.CYAN_HOT)
+	for lbl in [$PurchaseScreen/VBox/KeyCard/CardVBox/CrateName,
+			$PurchaseScreen/VBox/OddsCard/OddsVBox/OddsTitle]:
+		lbl.add_theme_color_override("font_color", T.CYAN)
+	_balance.add_theme_color_override("font_color", T.AMBER)
+	_build_spin_frame()
+
+# Emblem + frame behind the reel, so the cards appear to scroll through a projector rather than
+# across a blank strip.
+var _spin_ring: Control = null
+var _spin_frame: Control = null
+
+func _build_spin_frame() -> void:
+	_spin_ring = HOLO_RING.new()
+	_spin_ring.custom_minimum_size = Vector2(230, 230)
+	_spin_ring.size = Vector2(230, 230)
+	_spin_ring.modulate = Color(1, 1, 1, 0.5)
+	_spin_ring.z_index = -2
+	_spin_stage.add_child(_spin_ring)
+	_spin_stage.move_child(_spin_ring, 0)
+
+	# The frame: brackets and edge rails drawn over the reel, marking the read window.
+	_spin_frame = Control.new()
+	_spin_frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_spin_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_spin_stage.add_child(_spin_frame)
+	_spin_frame.draw.connect(_draw_spin_frame)
+	_spin_stage.resized.connect(func():
+		if is_instance_valid(_spin_ring):
+			_spin_ring.position = _spin_stage.size * 0.5 - _spin_ring.size * 0.5
+		if is_instance_valid(_spin_frame):
+			_spin_frame.queue_redraw()
+	)
+
+func _draw_spin_frame() -> void:
+	var sz := _spin_frame.size
+	if sz.x <= 0.0:
+		return
+	# Dim the reel outside the centre window so the eye is pulled to the card about to land.
+	var win := CARD_W + 16.0
+	var cx := sz.x * 0.5
+	_spin_frame.draw_rect(Rect2(0, 0, cx - win * 0.5, sz.y), Color(T.VOID, 0.55))
+	_spin_frame.draw_rect(Rect2(cx + win * 0.5, 0, sz.x - cx - win * 0.5, sz.y), Color(T.VOID, 0.55))
+	# The read window itself: bracketed, with a hot centre line.
+	var r := Rect2(cx - win * 0.5, 2.0, win, sz.y - 4.0)
+	T.draw_brackets(_spin_frame, r, Color(T.CYAN, 0.9), 16.0, 2.0)
+	T.draw_glow_line(_spin_frame, Vector2(cx, 0.0), Vector2(cx, sz.y), T.CYAN_HOT, 1.0, 0.55)
+	# Emitter rails top and bottom, the lit edges from the reference panel.
+	T.draw_glow_line(_spin_frame, Vector2(0, 1.0), Vector2(sz.x, 1.0), T.CYAN, 1.5, 0.8)
+	T.draw_glow_line(_spin_frame, Vector2(0, sz.y - 1.0), Vector2(sz.x, sz.y - 1.0), T.CYAN, 1.5, 0.8)

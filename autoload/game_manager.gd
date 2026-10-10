@@ -14,6 +14,10 @@ signal dash_requested # emitted by mobile_controls.gd's white dash button tap (T
 # Teleportation Bracelet dash (picked up in the lobby): dash_unlocked gates the dash button;
 # dash_ready/dash_cooldown_frac are published by player.gd for the button's UI (fill/greyed).
 var dash_unlocked: bool = false
+# Melee execute window: set for EXECUTE_WINDOW seconds after a melee kill while other enemies are
+# still alive. The dash button glows yellow while it's up, and tapping dash then becomes a blink
+# behind the next target followed by a free swing, instead of the ordinary dash.
+var execute_ready: bool = false
 var dash_ready: bool = true
 var dash_cooldown_frac: float = 1.0
 
@@ -89,6 +93,12 @@ var equipment_teleport: bool = false
 # and mobile_controls.gd's charge-bar drawing + touch handling). sniper_charge ticks up to
 # sniper_charge_time in player.gd; once full, tapping the bar (mobile_controls) sets
 # sniper_armed, which locks player movement and makes the next tap anywhere fire instead.
+# Generic charge-weapon wind-up (Scatter Cannon / Ray Gun / Boomerang, Beam Cannon). Separate
+# from the sniper's charge above: this one fires automatically at full charge and keeps the normal
+# aim joystick, so mobile_controls only needs the fill amount to draw a progress ring.
+var weapon_charge_time: float = 0.0
+var weapon_charge: float = 0.0
+
 var sniper_equipped: bool = false
 var sniper_charge: float = 0.0
 var sniper_charge_time: float = 2.0
@@ -241,6 +251,12 @@ func clear_hitstop() -> void:
 # character without needing the weapon to be re-equipped.
 var elemental_effect_mult: float = 1.0
 
+# True only in rooms that actually spawn a fight. world.gd sets it on every room entry; artifacts
+# flagged combat_only (Fire Trail+, Wave Pulse+) are ignored while it's false, so they don't tick
+# away in the lobby, a shop or the bar. Defaults true so anything reading it before a room is set
+# up behaves normally.
+var room_spawns_enemies: bool = true
+
 func refresh_shirt_effects() -> void:
 	elemental_effect_mult = 2.0 if SaveManager.shirt_color == "red" else 1.0
 
@@ -311,6 +327,8 @@ func record_melee_hit() -> void:
 
 var _bullets_container: Node = null
 const MUZZLE_FLASH_SCENE := preload("res://scenes/fx/muzzle_flash.tscn")
+const CRIT_FLASH_COLOR := Color(1.0, 0.92, 0.55) # hot gold — the "this one hurt" flash
+const CRIT_FLASH_SCALE := 1.8
 const LASER_SPEED_MULT := 2.0 # player-side laser travel-speed multiplier (visual only; DPS unchanged)
 const ENEMY_LASER_SPEED_MULT := 1.5 # enemy laser travel-speed multiplier
 
@@ -326,7 +344,7 @@ func laser_energy_color(freeze_duration: float, wave_max_width: float) -> Color:
 		return Color(0.30, 0.90, 0.90)
 	return Color(1.0, 0.40, 0.22)
 
-func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = -1, speed: float = -1.0, freeze_duration: float = -1.0, knockback_force: float = -1.0, wave_max_width: float = -1.0, from_player: bool = false, burn_damage: int = 0, burn_duration: float = 0.0, chain: bool = false) -> void:
+func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = -1, speed: float = -1.0, freeze_duration: float = -1.0, knockback_force: float = -1.0, wave_max_width: float = -1.0, from_player: bool = false, burn_damage: int = 0, burn_duration: float = 0.0, chain: bool = false, pierce: bool = false, ricochet_bounces: int = 0, is_crit: bool = false, split_count: int = 0, split_delay: float = 0.0, max_range: float = 0.0, spiral_radius: float = 0.0, spiral_rate: float = 0.0, spiral_phase: float = 0.0, bolt_style: bool = false, chain_count: int = 1, chain_damage_frac: float = 0.5) -> void:
 	if _bullets_container == null:
 		return
 	var b = scene.instantiate()
@@ -335,6 +353,17 @@ func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = 
 	b.burn_damage = burn_damage
 	b.burn_duration = burn_duration
 	b.chain_lightning = chain
+	b.pierce = pierce                     # Photon Spear passes through enemies
+	b.ricochet_bounces = ricochet_bounces # dagger family / Cannon Boomerang bounce off walls
+	b.split_count = split_count           # Dagger Hammer knives split again mid-flight
+	b.split_delay = split_delay
+	b.max_range = max_range               # 0 = unlimited (the default for every other weapon)
+	b.spiral_radius = spiral_radius       # Beam Laser Blaster's lasers vortex around the beam
+	b.spiral_rate = spiral_rate
+	b.spiral_phase = spiral_phase
+	b.bolt_style = bolt_style           # Photon Spear's light-blue lightning bolt
+	b.chain_count = chain_count         # Electro Blaster arcs through several enemies
+	b.chain_damage_frac = chain_damage_frac
 	if damage >= 0:
 		b.damage = damage
 	if speed >= 0.0:
@@ -360,6 +389,11 @@ func spawn_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: int = 
 	if from_player:
 		var col := laser_energy_color(b.freeze_duration, b.wave_max_width)
 		var scl: float = clampf(float(b.damage) / 8.0, 0.7, 2.2)
+		# A crit gets its own tell: a bigger, near-white gold flash rather than the weapon's usual
+		# energy colour. Damage numbers aren't shown anywhere, so the flash IS the feedback.
+		if is_crit:
+			col = CRIT_FLASH_COLOR
+			scl = maxf(scl, 1.0) * CRIT_FLASH_SCALE
 		var mf: Node2D = MUZZLE_FLASH_SCENE.instantiate()
 		mf.setup(col, scl)
 		mf.global_position = pos
@@ -400,12 +434,15 @@ func spawn_enemy_bullet(scene: PackedScene, pos: Vector2, angle: float, damage: 
 # the tree before configure()/launch() since the thrown weapon's wall raycast needs a valid
 # World2D.
 func spawn_thrown_weapon(scene: PackedScene, tex: Texture2D, origin: Vector2, direction: Vector2,
-		player: Node2D, damage: int, radius: float, speed: float) -> Node:
+		player: Node2D, damage: int, radius: float, speed: float,
+		emit_bullet_scene: PackedScene = null, orbit_damage: int = 0, orbit_rate: float = 0.0,
+		ring_damage: int = 0, ring_rate: float = 0.0, ring_radius: float = 150.0) -> Node:
 	if _bullets_container == null:
 		return null
 	var w = scene.instantiate()
 	_bullets_container.add_child(w)
 	w.configure(tex, damage, radius, speed)
+	w.configure_emissions(emit_bullet_scene, orbit_damage, orbit_rate, ring_damage, ring_rate, ring_radius)
 	w.launch(origin, direction, player)
 	return w
 

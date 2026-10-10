@@ -43,40 +43,66 @@ func _on_play_pressed() -> void:
 		return
 	SceneManager.go_to_game()
 
-# ── Glassy-futuristic theme ─────────────────────────────────────────────────────────────────
+# ── Holo theme ───────────────────────────────────────────────────────────────────────────────
+
+const T := preload("res://scenes/ui/ui_theme.gd")
+const HOLO_RING := preload("res://scenes/ui/holo_ring.gd")
 
 func _apply_futuristic_theme() -> void:
-	var t := Theme.new()
-	t.set_stylebox("normal",  "Button", _glass_box(Color(0.30, 0.55, 0.85, 0.10), Color(0.35, 0.72, 0.95, 0.55), 1))
-	t.set_stylebox("hover",   "Button", _glass_box(Color(0.32, 0.70, 0.95, 0.22), Color(0.55, 0.92, 1.0, 0.95), 2))
-	t.set_stylebox("pressed", "Button", _glass_box(Color(0.18, 0.50, 0.85, 0.40), Color(0.60, 0.95, 1.0, 1.0), 2))
-	t.set_stylebox("focus",   "Button", _glass_box(Color(0, 0, 0, 0),             Color(0.55, 0.92, 1.0, 0.6), 2))
-	t.set_color("font_color",         "Button", Color(0.86, 0.95, 1.0))
-	t.set_color("font_hover_color",   "Button", Color(1, 1, 1))
-	t.set_color("font_pressed_color", "Button", Color(1, 1, 1))
-	theme = t
+	T.style_all_buttons($VBox/Buttons, T.CYAN)
+	# Play is the primary action, so it takes the warm accent — the one amber element on a
+	# screen that is otherwise entirely cyan, which is exactly how the reference console uses it.
+	T.style_button($VBox/Buttons/PlayRow/BtnPlay, T.AMBER, 17)
+	for b in [$VBox/Buttons/PlayRow/BtnPlay, $VBox/Buttons/PlayRow/BtnTest]:
+		b.custom_minimum_size = Vector2(0, 52)
 
-	# Glowing cyan title via a soft outline; muted footer.
 	var title: Label = $VBox/Header/Title
-	title.add_theme_color_override("font_color", Color(0.62, 0.92, 1.0))
-	title.add_theme_color_override("font_outline_color", Color(0.10, 0.55, 0.95, 0.85))
-	title.add_theme_constant_override("outline_size", 6)
-	$VBox/Footer.add_theme_color_override("font_color", Color(0.45, 0.58, 0.72))
+	title.add_theme_color_override("font_color", T.CYAN_HOT)
+	title.add_theme_color_override("font_outline_color", Color(T.CYAN, 0.75))
+	title.add_theme_constant_override("outline_size", 7)
+	title.add_theme_font_size_override("font_size", 40)
+	$VBox/Footer.add_theme_color_override("font_color", T.TEXT_DIM)
 
-	# Play button gets a warmer/brighter accent so it stands out as the primary action.
-	var play: Button = $VBox/Buttons/PlayRow/BtnPlay
-	play.add_theme_stylebox_override("normal",  _glass_box(Color(0.15, 0.65, 0.75, 0.18), Color(0.35, 0.95, 1.0, 0.8), 2))
-	play.add_theme_stylebox_override("hover",   _glass_box(Color(0.20, 0.80, 0.90, 0.30), Color(0.60, 1.0, 1.0, 1.0), 2))
-	play.add_theme_stylebox_override("pressed", _glass_box(Color(0.12, 0.60, 0.80, 0.45), Color(0.70, 1.0, 1.0, 1.0), 2))
+	_build_emblem()
+	_play_intro()
 
-func _glass_box(bg: Color, border: Color, bw: int) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = bg
-	s.border_color = border
-	s.set_border_width_all(bw)
-	s.set_corner_radius_all(14)
-	s.set_content_margin_all(10)
-	return s
+# The rotating emblem sits BEHIND the character sprite, so the logo reads as a figure standing in
+# a projection rather than as a badge next to one.
+func _build_emblem() -> void:
+	var logo: TextureRect = $VBox/Header/Logo
+	var ring := HOLO_RING.new()
+	ring.custom_minimum_size = Vector2(190, 190)
+	ring.set_anchors_preset(Control.PRESET_CENTER)
+	ring.size = Vector2(190, 190)
+	ring.z_index = -1
+	logo.add_child(ring)
+	logo.resized.connect(func(): ring.position = logo.size * 0.5 - ring.size * 0.5)
+	ring.position = logo.size * 0.5 - ring.size * 0.5
+	logo.custom_minimum_size = Vector2(0, 150)
+
+# Staggered entrance: the title fades down, then each button slides in from the left a beat
+# apart. Cheap, but it makes the screen feel like it powers on rather than just appearing.
+func _play_intro() -> void:
+	var header: Control = $VBox/Header
+	header.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(header, "modulate:a", 1.0, 0.45).set_trans(Tween.TRANS_CUBIC)
+
+	# NEVER animate `position` here: these are children of a VBoxContainer, which owns their
+	# positions and rewrites them on every sort. Reading position during _ready (before the first
+	# layout pass) returned (0,0) for every button, and tweening them to that stacked all eight on
+	# one spot — unselectable. `modulate` and `scale` are not container-managed, so the entrance
+	# uses those instead and can never fight the layout.
+	var i := 0
+	for row in $VBox/Buttons.get_children():
+		if not (row is Control):
+			continue
+		var c := row as Control
+		c.modulate.a = 0.0
+		var t2 := create_tween()
+		t2.tween_interval(0.10 + 0.055 * float(i))
+		t2.tween_property(c, "modulate:a", 1.0, 0.26)
+		i += 1
 
 # No manual touch fallback: the buttons fire natively from InputEventScreenTouch (every other
 # menu screen — inventory, settings, info, etc. — relies on this and works). The old manual

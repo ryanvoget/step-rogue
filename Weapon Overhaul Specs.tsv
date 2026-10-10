@@ -1,0 +1,50 @@
+Weapon	Tier/Rarity	Type	Element	Description
+Scatter Blaster	T1 common	Ranged	-	Shoots 5 pellets in a spread, 2 dmg each, 0.8s
+Beam Rifle	T2 uncommon	Ranged	-	Continuous held beam, 12 dmg/sec dealt as 1 dmg per tick (12 ticks/sec)
+Boomerang	T2 uncommon	Ranged	-	Thrown out-and-back like the old Throwable Beam Sword but straight, 2x speed (1040 px/s), 8 dmg per hit
+Grapple Spear	T2 uncommon	Melee	-	Grapple-hook style aimed ray: 20 dmg on impact and pulls the enemy closer. More forgiving aim than the old Grapple Hook (wider targeting tolerance)
+Photon Spear	T3 rare	Ranged	Electric	Long bolt-like spear, travels very fast, pierces enemies for 20 dmg each. Electric effect applies to enemies around the path it travels. [fire rate TBD]
+Singularity Cannon	T3 rare	Ranged	Void	CUT - removed from the roster on request, do not implement
+Crit Blaster	T3 rare	Ranged	-	6 dmg, 0.5s fire rate, 20% chance per shot to deal 3x damage (18). NEW MECHANIC: no crit system exists yet
+Void Blade	T3 rare	Melee	Void	13 dmg, 0.6s swing, 128px range. Void pull triggers on EVERY swing (not only on a connecting hit)
+Nova Gloves	T3 rare	Melee	-	Explodes outward in a RADIUS (360deg, not a directional cone), 15 dmg, 0.6s staggered hits, decent knockback, keeps no-move-lock. Screen shake tuned to match Large Warhammer. [Q: 1 hit or 2 staggered like Punching Gloves?]
+Pulse Hammer	T3 rare	Melee	-	Slams the ground beneath the player, sending a ring outward: 10 dmg + knockback to enemies it passes. [Q: ring range? swing rate? does a direct hit also apply?]
+War Hammer (REDESIGN)	T1 common	Melee	-	CHANGED from a 128px directional cone to the same ground-slam ring as Pulse Hammer, but the ring travels only 300px and does 6 dmg. [Q: does the direct 8 dmg swing remain, or is the ring the only damage?]
+Ricochet Flame Daggers	T4 epic	Ranged	Fire	Throws 3 daggers, 8 dmg each, each bounces twice off walls, applies burn on hit. NEW MECHANIC: nothing ricochets today (bullets die on wall contact)
+Dual Staff	uncommon COMBO	Melee	-	Staff + Staff. Two hits per swing (melee_hits 2), otherwise Staff stats: 3 dmg, 0.5s, 128px, 180 kb
+Staff Gloves	uncommon COMBO	Melee	-	Staff + Punching Gloves. 4 dmg, 0.5s, 160px range, keeps no-move-lock. [assumed single hit + inherits 180 kb unless told otherwise]
+Dagger Staff	uncommon COMBO	Melee	-	Staff + Daggers. ONE hit per swing, 8 dmg, 0.4s, 128px range, WIDER cone than default (daggers lashed to the staff head) [default melee arc is 100deg; needs a number]
+Staff Hammer	uncommon COMBO	Melee	-	Staff + War Hammer. Swings as a normal staff cone, but the War Hammer pulse ring spawns at the PEAK of the cone (far end, out in the aim direction) instead of under the player. [dmg for swing + ring TBD]
+Dual Gloves	uncommon COMBO	Melee	-	Punching Gloves + Punching Gloves. Identical to Punching Gloves but 2x damage: 4 dmg x2 staggered hits, 0.40s, 96px, 180 kb, no move lock
+Dagger Gloves	uncommon COMBO	Melee	-	Punching Gloves + Daggers. Punches as normal gloves (2 dmg x2, 0.40s, 96px, no move lock) AND fires a dagger with each punch: 3 dmg per hit, ricochets twice. Hybrid melee+projectile
+Hammer Gloves	uncommon COMBO	Melee	-	Punching Gloves + War Hammer. Punches the ground with pulses - same ground-slam ring as War Hammer (6 dmg, 300px) but 2x rate of fire (1.0s -> 0.5s)
+Dual Daggers	uncommon COMBO	Melee	-	Daggers + Daggers. 4 staggered hits per swing, 2 dmg each (8 per swing), 0.25s, 96px, 180 kb
+Dagger Hammer	uncommon COMBO	Melee	-	Daggers + War Hammer. Ground slam emits 14 KNIVES radially instead of a pulse wave; after 0.5s each knife splits into 3 (42 projectiles total). [dmg per knife TBD; does the split knife do less?]
+Dual Hammers	uncommon COMBO	Melee	-	War Hammer + War Hammer. Ground-slam ring: 12 dmg, 400px reach, 2x the base ring knockback, 1.0s. Natural replacement for the old Large Warhammer
+Beam Staff	rare COMBO	Melee	-	Staff + Beam Sword. 13 dmg x2 hits per swing (26/swing), 0.5s, 128px. NOTE: out-damages the EPIC Double Beam Swords (7x2=14/swing)
+Whip Staff	rare COMBO	Melee	-	Staff + Metallic Whip. Arc 2x the whip (33.3 -> 66.7 deg), 5 dmg x2 hits per swing, keeps the 0.2s stun, 256px reach, 0.5s
+Grapple Staff	rare COMBO	Melee	-	Staff + Grapple Spear. The staff is mounted on the grapple and SPINS at its tip as the grapple deploys, damaging enemies along the whole path rather than only the impact target. [dmg TBD; assume it still pulls on impact]
+Beam Gloves	rare COMBO	Melee	-	Punching Gloves + Beam Sword. 8 dmg, 0.4s, keeps no-move-lock, and each punch fires an energy blast straight along the punch direction. Second melee+projectile glove hybrid. [Q: is 8 dmg the punch or the blast? 1 or 2 hits?]
+Punching Whip	rare COMBO	Melee	-	Punching Gloves + Metallic Whip. Fist launches out on a chain: 10 dmg, 256px reach, keeps the 0.2s stun. [assume narrow whip arc + no-move-lock unless told otherwise]
+Grapple Gloves	rare COMBO	Melee	-	Punching Gloves + Grapple Spear. Two-stage: grapples the enemy, then auto-punches once they are pulled into range. [dmg for grapple hit + punch TBD]
+Beam Daggers	rare COMBO	Melee	-	Daggers + Beam Sword. Dagger swing but 3 dmg per hit (x2 hits, 0.25s, 96px), PLUS 2 daggers thrown forward that ricochet twice for 3 dmg each. Third ricochet weapon
+Whip Daggers	rare COMBO	Melee	-	Daggers + Metallic Whip. Half the whip reach (128px), 2 quick hits at 7 dmg each, much faster than the whip (assume ~0.25s), keeps the 0.2s stun
+Grapple Daggers	rare COMBO	Melee	-	Daggers + Grapple Spear. Grapple pulls the enemy in, then a flurry of 4 stabs. [dmg per stab TBD] [name reads like a placeholder]
+Beam Hammer	rare COMBO	Melee	-	War Hammer + Beam Sword. Energy-flavoured ring: 12 dmg, 400px reach, slightly faster than base (assume ~0.8s). NOTE: same dmg/reach as Dual Hammers - differs by rate vs 2x knockback
+Whip Hammer	rare COMBO	Melee	-	War Hammer + Metallic Whip. Hammer pulse ring forms at the END of the whip hitbox (256px out), 10 dmg per wave, keeps the stun. Same placement idea as Staff Hammer but at whip range
+Grapple Hammer	rare COMBO	Melee	-	War Hammer + Grapple Spear. Two-phase pulse: grapples enemies INWARD, then knocks them away. 15 dmg per pulse
+Dual Laser Blasters	uncommon COMBO	Ranged	-	Laser Blaster + Laser Blaster. Exactly the current Double Pistol Blasters: 2 dmg, 0.25s, twin bolts offset either side of the aim point (barrel_offset 6). Replaces that item
+Laser Burst Cannon	uncommon COMBO	Ranged	-	Laser Blaster + Hand Cannon. 3-shot burst, 4 dmg each (12/burst), then 1s recharge. Same burst pattern the B Unit enemy already uses (assume ~0.12s between shots in a burst)
+Laser Scatter Blaster	uncommon COMBO	Ranged	-	Laser Blaster + Scatter Blaster. Same 5 pellets at 2 dmg each, 0.8s, but longer range and a tighter spread. [NOTE: base Scatter Blaster needs an explicit range/falloff so this can beat it]
+Dual Hand Cannons	uncommon COMBO	Ranged	-	Hand Cannon + Hand Cannon. 24 dmg single shot, 1.25s. Highest single-hit damage in the game
+Scatter Cannon	uncommon COMBO	Ranged	-	Hand Cannon + Scatter Blaster. Charges 1s then fires 2x5 pellets (10 total) at 6 dmg each. Charge plumbing exists from the removed Sniper Rifle Blaster (sniper_charge_time)
+Dual Scatter Blasters	uncommon COMBO	Ranged	-	Scatter Blaster + Scatter Blaster. Same 5 pellets at 2 dmg, rate halved 0.8s -> 0.4s (25 dmg/sec on a full hit vs 12.5 base)
+Beam Laser Blaster	rare COMBO	Ranged	-	Beam Rifle + Laser Blaster. Continuous 12 dmg/sec beam plus 2-damage lasers every 0.33s that corkscrew around the beam in a vortex (26px orbit radius, 5 orbits/sec), consecutive shots launching half an orbit apart so they read as a double helix. Lasers travel 1360px/s. ~18 DPS single target.
+Laser Ray Gun	rare COMBO	Ranged	-	Laser Blaster + Wave Ray Gun. Rapid small piercing waves: 3 dmg, 0.3s. [wave max width TBD - base Wave Ray Gun is 147px, so something well under that]
+Laser Boomerang	rare COMBO	Ranged	-	Laser Blaster + Boomerang. Boomerang flies out-and-back (8 dmg per hit) while SPINNING and firing lasers in all directions along the way. [laser dmg + fire rate TBD]
+Beam Cannon	rare COMBO	Ranged	-	Beam Rifle + Hand Cannon. Continuous beam (12 dmg/sec) that doubles as the wind-up: a bright core travels down the beam over 0.6s, reaching the muzzle as it fires a 12-damage blast to everything the beam touches. Beam then goes fully dark for 0.2s before resuming. ~0.8s per cycle.
+Ray Cannon	rare COMBO	Ranged	-	Hand Cannon + Wave Ray Gun. 1.5s charge, 20 dmg, piercing wave grows to 300px wide (vs 147px base). Opposite pole to Laser Ray Gun
+Cannon Boomerang	rare COMBO	Ranged	-	Hand Cannon + Boomerang. Hold-to-charge throw, 1.0s to full. Glowing charge builds, flashes at full. Release early and the boomerang scales linearly with hold time — 0.5s held = 50% damage and 50% travel speed (floor 10%). 20 dmg at full, ricochets once off walls (still returns). Fourth ricochet weapon.
+Beam Scatter Blaster	rare COMBO	Ranged	-	Scatter Blaster + Beam Rifle. 3 continuous beams in a fan, 4 dmg/sec each (12/sec total on one target, more across a spread group). [fan angle TBD]
+Wave Scatter Blaster	rare COMBO	Ranged	-	Scatter Blaster + Wave Ray Gun. 3 piercing waves fired in a spread, 7 dmg each, 0.8s. [wave width + spread angle TBD]
+Scatter Boomerang	rare COMBO	Ranged	-	Scatter Blaster + Boomerang. Emits pulse rings along its flight path, 6 dmg each, on top of the 8 dmg boomerang hits. [ring interval + size TBD]

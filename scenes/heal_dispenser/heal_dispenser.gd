@@ -55,6 +55,9 @@ func _spawn_pickup() -> void:
 	pos.x = clampf(pos.x, min_x, max_x)
 	pos.y = clampf(pos.y, min_y, max_y)
 
+	# Small Heal Vial was removed in the defensive rework, so this lookup now always comes back
+	# empty and the pickup falls back to no texture. Harmless: the only thing that spawns a
+	# dispenser is the Heal Dispenser Farm, which was removed in the same pass.
 	var vial_item: Dictionary = ItemRegistry.get_item_by_name("Small Heal Vial")
 	var tex: Texture2D = load("res://assets/icons/" + vial_item["file"]) if not vial_item.is_empty() else null
 	var pickup: Node2D = PICKUP_SCENE.instantiate()

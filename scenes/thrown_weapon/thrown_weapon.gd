@@ -25,6 +25,51 @@ var _turnaround_pos := Vector2.ZERO
 var _hit_this_leg: Dictionary = {} # enemy -> true; cleared per leg so out/back can each land a hit
 var _scored := false # counts this throw as "connected" once, for melee accuracy (see GameManager)
 
+# ── In-flight emissions ──────────────────────────────────────────────────────────────────────
+# Two fused boomerangs do something extra while airborne, both driven from here because they need
+# the weapon's live position: Laser Boomerang sprays lasers in every direction as it spins, and
+# Scatter Boomerang drops expanding damage rings along its path.
+const PULSE_RING_SCENE := preload("res://scenes/fx/wave_pulse.tscn")
+const ORBIT_SPOKES := 6 # lasers per volley, spread evenly around the weapon
+var _orbit_damage := 0
+var _orbit_rate := 0.0
+var _orbit_accum := 0.0
+var _orbit_spin := 0.0
+var _ring_damage := 0
+var _ring_rate := 0.0
+var _ring_radius := 150.0
+var _ring_accum := 0.0
+var _bullet_scene: PackedScene = null
+
+func configure_emissions(bullet_scene: PackedScene, orbit_damage: int, orbit_rate: float,
+		ring_damage: int, ring_rate: float, ring_radius: float) -> void:
+	_bullet_scene = bullet_scene
+	_orbit_damage = orbit_damage
+	_orbit_rate = orbit_rate
+	_ring_damage = ring_damage
+	_ring_rate = ring_rate
+	_ring_radius = ring_radius
+
+func _tick_emissions(delta: float) -> void:
+	if _orbit_damage > 0 and _orbit_rate > 0.0 and _bullet_scene != null:
+		_orbit_accum += delta
+		while _orbit_accum >= _orbit_rate:
+			_orbit_accum -= _orbit_rate
+			# Rotate the spoke pattern each volley so the spray reads as spinning rather than
+			# firing the same fixed star over and over.
+			_orbit_spin += 0.55
+			for i in range(ORBIT_SPOKES):
+				var a := TAU * float(i) / float(ORBIT_SPOKES) + _orbit_spin
+				GameManager.spawn_bullet(_bullet_scene, global_position, a, _orbit_damage, -1.0,
+					0.0, 0.0, 0.0, true)
+	if _ring_damage > 0 and _ring_rate > 0.0:
+		_ring_accum += delta
+		while _ring_accum >= _ring_rate:
+			_ring_accum -= _ring_rate
+			var ring: Node2D = PULSE_RING_SCENE.instantiate()
+			get_parent().add_child(ring)
+			ring.configure(global_position, _ring_damage, _ring_radius, 0.0, false, Color(0.5, 0.9, 1.0))
+
 @onready var _sprite: Sprite2D = $Sprite
 
 # Applies an item's tuned stats (damage/thrown_radius/bullet_speed from ItemRegistry) and icon.
@@ -57,6 +102,7 @@ func _raycast_wall(origin: Vector2, direction: Vector2) -> Vector2:
 	return result.position if result else origin + direction * MAX_CAST_DISTANCE
 
 func _physics_process(delta: float) -> void:
+	_tick_emissions(delta)
 	_apply_hitbox()
 	match _leg:
 		Leg.OUTBOUND:
@@ -85,6 +131,9 @@ func _apply_hitbox() -> void:
 		if global_position.distance_to(enemy.global_position) <= _radius and enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 			_hit_this_leg[enemy] = true
+			# Same impact shake a melee hit gives, scaled by damage — a returning boomerang
+			# connecting should land as hard as a swing that does the same damage.
+			GameManager.add_screen_shake(clampf(float(_damage) / 18.0, 0.15, 0.55))
 			if not _scored:
 				_scored = true
 				GameManager.record_melee_hit()

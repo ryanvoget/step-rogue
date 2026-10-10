@@ -24,7 +24,7 @@ const TYPES := {
 	"Warp":   {"hp": 50, "radius": 25.0, "weapon": Weapon.LASER, "special": "teleport",  "gold":  8, "color": Color(0.60, 0.25, 0.85)}, # Purple
 	"Crater": {"hp": 50, "radius": 25.0, "weapon": Weapon.STAFF, "special": "fast_swing","gold":  8, "color": Color(0.45, 0.28, 0.13)}, # Brown
 	"Clone":  {"hp": 50, "radius": 25.0, "weapon": Weapon.BATON, "special": "clone",     "gold":  8, "color": Color(0.25, 0.82, 0.78)}, # Turquoise — halves into two 25 HP units
-	"Meteor": {"hp": 15, "radius": 25.0, "weapon": Weapon.NONE,  "special": "fling",     "gold": 10, "color": Color(0.96, 0.96, 0.96)}, # White — hurls its body at the player
+	"Meteor": {"hp": 150, "radius": 25.0, "weapon": Weapon.NONE,  "special": "fling",     "gold": 10, "color": Color(0.96, 0.96, 0.96)}, # White — hurls its body at the player
 	"Cryo":   {"hp": 75, "radius": 25.0, "weapon": Weapon.FREEZE,"special": "",          "gold":  8, "color": Color(0.50, 0.80, 1.00)}, # Light Blue
 	"Solar":  {"hp": 75, "radius": 25.0, "weapon": Weapon.FLAME, "special": "",          "gold":  8, "color": Color(0.90, 0.15, 0.15)}, # Red
 	"Nebula": {"hp": 75, "radius": 25.0, "weapon": Weapon.WAVE,  "special": "",          "gold":  8, "color": Color(1.00, 0.45, 0.75)}, # Pink
@@ -76,7 +76,7 @@ const BOSS1_MODE_BOUNCE := 2
 const BOSS2_TELEPORT_INTERVAL := 10.0 # Boss2 blinks to a random spot this often
 const BOSS2_RAPID_DURATION := 2.0     # ...then fires at 8x (instead of 4x) for this long after
 const BOSSF_GRENADE_INTERVAL := 5.0   # Final boss lobs a random grenade this often
-const BOSSF_SPLIT_INTERVAL := 8.0     # Final boss phase 2: splits in two this often
+const BOSSF_SPLIT_INTERVAL := 10.0    # Final boss phase 2: splits in two this often
 const BOSSF_MAX_SPLITS := 3           # ...but only 3 halvings deep (2^3 = 8 enemies max)
 const BOSSF_GRENADE_KINDS := ["molitov", "mesh", "freeze", "sticky"]
 
@@ -211,6 +211,7 @@ var _slow_timer := 0.0
 var _slow_multiplier := 1.0
 var _burn_timer := 0.0
 var _burn_tick_timer := 0.0
+var _burn_tick_interval := BURN_TICK_INTERVAL
 var _burn_damage := 0
 var _burn_flash_timer := 0.0
 var _burn_flash_on := false
@@ -291,6 +292,7 @@ func _physics_process(delta: float) -> void:
 	_tick_confuse(delta)
 	_tick_slow(delta)
 	_tick_blind(delta)
+	_tick_contact_damage(delta)
 	if _swing_flash_timer > 0.0:
 		_swing_flash_timer -= delta
 		queue_redraw() # animate/clear the melee swing telegraph
@@ -433,6 +435,24 @@ func _land_fling() -> void:
 	_freeze_pending_thaw = false # a self-inflicted stun is not a freeze — no thaw damage/slow
 	queue_redraw()
 
+# Spikes+ artifact: an enemy touching the player takes damage. Rate-limited per enemy, otherwise
+# standing in contact would shred it at 60 ticks a second.
+const CONTACT_DAMAGE_COOLDOWN := 1.0
+const CONTACT_DAMAGE_PAD := 16.0 # player radius + a little grace, on top of this enemy's radius
+var _contact_dmg_timer := 0.0
+func _tick_contact_damage(delta: float) -> void:
+	if _contact_dmg_timer > 0.0:
+		_contact_dmg_timer -= delta
+		return
+	if _dead or _player == null or not is_instance_valid(_player):
+		return
+	var dmg := int(ItemRegistry.artifact_num("contact_damage", 0.0))
+	if dmg <= 0:
+		return
+	if global_position.distance_to(_player.global_position) <= _radius + CONTACT_DAMAGE_PAD:
+		_contact_dmg_timer = CONTACT_DAMAGE_COOLDOWN
+		take_damage(dmg)
+
 func _tick_slow(delta: float) -> void:
 	if _slow_timer <= 0.0:
 		return
@@ -445,12 +465,16 @@ func _tick_slow(delta: float) -> void:
 # BURN_FLASH_INTERVAL to telegraph it (same pulse pattern as stun's white/blue flash). Called
 # when a beam weapon (e.g. Flamethrower) stops touching this enemy — see
 # player.gd::_tick_beam/_stop_beam.
-func apply_burn(damage: int, duration: float) -> void:
+func apply_burn(damage: int, duration: float, tick_interval: float = BURN_TICK_INTERVAL) -> void:
 	# Red character doubles elemental effect magnitude (GameManager.elemental_effect_mult).
 	var burn_total := damage + int(ItemRegistry.artifact_num("burn_bonus_dmg", 0.0)) # Fire+ artifact: +dmg/sec
 	_burn_damage = maxi(1, int(round(float(burn_total) * GameManager.elemental_effect_mult)))
 	_burn_timer = duration
-	_burn_tick_timer = BURN_TICK_INTERVAL
+	# Per-burn cadence: most burns tick once a second, but a weapon can ask for a faster drip of
+	# smaller hits (Flame Thrower: 1 dmg every 0.33s instead of 3 every second) so the DOT reads
+	# as a steady sizzle rather than three thuds.
+	_burn_tick_interval = tick_interval if tick_interval > 0.0 else BURN_TICK_INTERVAL
+	_burn_tick_timer = _burn_tick_interval
 	_burn_flash_timer = BURN_FLASH_INTERVAL
 	_burn_flash_on = true
 	queue_redraw()
@@ -471,7 +495,7 @@ func _tick_burn(delta: float) -> void:
 	_burn_timer -= delta
 	_burn_tick_timer -= delta
 	if _burn_tick_timer <= 0.0:
-		_burn_tick_timer += BURN_TICK_INTERVAL
+		_burn_tick_timer += _burn_tick_interval
 		take_damage(_burn_damage)
 	_burn_flash_timer -= delta
 	if _burn_flash_timer <= 0.0 or _burn_timer <= 0.0:
@@ -966,10 +990,13 @@ func _drop_coins() -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
+	# Gold+ artifact multiplies the payout. Applied to the total before it's broken into
+	# denominations below, so the coins still sum to exactly what the enemy is worth.
+	var payout: int = int(round(float(_gold) * ItemRegistry.artifact_num("gold_mult", 1.0)))
 	# Make change for _gold in credit denominations (25/10/5/1 — coin.gd colours each), so the
 	# dropped coins sum to EXACTLY the enemy-data gold. Capped at 24 coins for safety.
 	var values: Array = []
-	var remaining: int = _gold
+	var remaining: int = payout
 	for d in [25, 10, 5, 1]:
 		while remaining >= d and values.size() < 24:
 			values.append(d)
@@ -977,7 +1004,7 @@ func _drop_coins() -> void:
 	if remaining > 0 and not values.is_empty():
 		values[values.size() - 1] += remaining # dump any capped remainder onto the last coin
 	elif values.is_empty():
-		values.append(_gold)
+		values.append(payout)
 	var count: int = values.size()
 	for i in count:
 		var c: Node2D = COIN_SCENE.instantiate()

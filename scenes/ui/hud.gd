@@ -25,6 +25,7 @@ var _damage_flash: ColorRect = null # full-screen red flash pulsed when the play
 var _prev_hp := 0 # last seen player HP, to detect a drop (a hit) in _on_health
 
 func _ready() -> void:
+	_build_status_bar()
 	GameManager.health_changed.connect(_on_health)
 	GameManager.floor_changed.connect(_on_floor)
 	GameManager.room_cleared.connect(_on_room_cleared)
@@ -118,6 +119,7 @@ func refresh_artifact_icons() -> void:
 			tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			bg.add_child(tex)
 		_artifact_row.add_child(bg)
+	_refresh_divider()
 
 func _on_start_pressed() -> void:
 	_start_overlay.visible = false
@@ -195,3 +197,78 @@ func _on_menu_pressed() -> void:
 	GameManager.current_floor = 1
 	GameManager.coins = 0
 	SceneManager.go_to_menu()
+
+
+# ── Top status bar ───────────────────────────────────────────────────────────────────────────
+# Floor, equipped loadout, gold and active artifacts all live in ONE glass panel centred at the
+# top, instead of a left-pinned row and a right-pinned row. Pinning them to opposite corners meant
+# that on a wide screen the two halves sat far apart in the periphery; a single centred group sits
+# where the player is already looking. Sizes to its content, so it stays compact early in a run and
+# grows only as artifacts are picked up.
+const T := preload("res://scenes/ui/ui_theme.gd")
+const BAR_FILL   := Color(0.047, 0.098, 0.141, 0.82) # UITheme.PANEL_GLASS
+const BAR_BORDER := Color(0.373, 0.847, 0.961, 0.45) # UITheme.CYAN at panel strength
+
+func _build_status_bar() -> void:
+	var top_row: Control = $TopRow
+	var artifacts: Control = $ArtifactRow
+
+	var bar := PanelContainer.new()
+	bar.name = "StatusBar"
+	bar.anchor_left = 0.5
+	bar.anchor_right = 0.5
+	bar.offset_top = 6.0
+	bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	bar.grow_vertical = Control.GROW_DIRECTION_END
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = BAR_FILL
+	sb.border_color = BAR_BORDER
+	sb.set_border_width_all(1)
+	sb.border_width_top = 2 # the lit emitter edge every holo panel carries
+	sb.set_corner_radius_all(14)
+	sb.shadow_color = Color(T.CYAN, 0.18)
+	sb.shadow_size = 7
+	sb.content_margin_left = 14.0
+	sb.content_margin_right = 14.0
+	sb.content_margin_top = 5.0
+	sb.content_margin_bottom = 5.0
+	bar.add_theme_stylebox_override("panel", sb)
+	# Slides down into place on run start rather than popping in.
+	bar.modulate.a = 0.0
+	var tw := bar.create_tween()
+	tw.tween_interval(0.25)
+	tw.tween_property(bar, "modulate:a", 1.0, 0.4)
+	add_child(bar)
+	move_child(bar, 0) # behind the popups/overlays that sit on this layer
+
+	# Reparent the existing rows so every @onready reference above stays valid.
+	top_row.get_parent().remove_child(top_row)
+	top_row.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	top_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	top_row.add_theme_constant_override("separation", 10)
+	bar.add_child(top_row)
+
+	artifacts.get_parent().remove_child(artifacts)
+	artifacts.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	artifacts.alignment = BoxContainer.ALIGNMENT_BEGIN
+	top_row.add_child(artifacts) # artifacts now trail the gold count in the same group
+
+	# Thin divider between the loadout/gold group and the artifacts, so the bar reads as
+	# two sections rather than one long strip of icons.
+	var sep := VSeparator.new()
+	sep.add_theme_constant_override("separation", 10)
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_row.add_child(sep)
+	top_row.move_child(sep, artifacts.get_index())
+	artifacts.set_meta("divider", sep)
+	_refresh_divider()
+
+# The divider is only meaningful when there is something on both sides of it.
+func _refresh_divider() -> void:
+	var artifacts: Control = $StatusBar/TopRow/ArtifactRow if has_node("StatusBar/TopRow/ArtifactRow") else null
+	if artifacts == null or not artifacts.has_meta("divider"):
+		return
+	var sep: Control = artifacts.get_meta("divider")
+	if is_instance_valid(sep):
+		sep.visible = artifacts.get_child_count() > 0
