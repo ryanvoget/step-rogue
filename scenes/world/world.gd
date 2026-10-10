@@ -187,6 +187,7 @@ func _ready() -> void:
 	_refresh_doors()
 	_set_combat_room_flag(_rooms[Vector2i.ZERO]) # lobby: combat_only artifacts stay dormant
 	_spawn_player()
+	_lock_starting_cell()  # the player begins shut in a holding cell
 	_spawn_dash_pickup() # the Teleportation Bracelet, waiting in the lobby
 	_apply_loadout()
 	_update_camera(true) # snap to the player now that they exist (the _refresh_doors call had none)
@@ -838,6 +839,8 @@ func _schedule_enemy_waves(types: Array, spawns: Array, count: int, floor_n: int
 	# Build the queue as a list of GROUPS rather than individual arrival times, so the pump below
 	# can release a whole group at once and re-time whatever is left.
 	_spawn_queue.clear()
+	_key_card = null
+	_cell_locked = false
 	_boss2_add_timer = 0.0
 	var i := 0
 	var first := true
@@ -1700,6 +1703,7 @@ func _physics_process(_delta: float) -> void:
 			return
 		elif not near_bar:
 			_bartender_active = false
+	_tick_key_card() # cell escape: walk over the card to open the blue door
 	_tick_spawn_queue(_delta) # release the next enemy group (early if the floor is empty)
 	_tick_boss2_adds(_delta) # boss 2: two M/L units every 5s
 	_tick_upgrade_crate() # Open prompt for the post-floor reward crate
@@ -3389,3 +3393,70 @@ func _fly_card_to_stat(key: String, tint: Color, icon: String) -> void:
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tw.parallel().tween_property(ghost, "scale", Vector2(0.5, 0.5), 0.42)
 	tw.tween_callback(ghost.queue_free)
+
+
+# ── Holding cell escape ──────────────────────────────────────────────────────────────────────
+# The run opens with the player shut in one of the Holding Bay's two cells. A key card sits on
+# the cell's table; picking it up opens the blue door and lets them out to the corridor, where
+# the Teleportation Bracelet is waiting.
+const KEY_CARD_SCENE := preload("res://scenes/key_card/key_card.tscn")
+const KEY_CARD_RANGE := 46.0
+
+var _key_card: Node2D = null
+var _cell_locked := false
+
+func _lock_starting_cell() -> void:
+	if _room_kind != "start":
+		return
+	var idx: int = _room.spawn_cell_index
+	if idx < 0:
+		return
+	_room.lock_cell(idx)
+	_cell_locked = true
+	var card: Node2D = KEY_CARD_SCENE.instantiate()
+	card.global_position = _room.LOBBY_CELL_KEYS[idx]
+	_props.add_child(card)
+	_key_card = card
+
+# Proximity pickup, polled from _physics_process alongside the other prompts.
+func _tick_key_card() -> void:
+	if _key_card == null or not is_instance_valid(_key_card):
+		return
+	if _player.global_position.distance_to(_key_card.global_position) > KEY_CARD_RANGE:
+		return
+	_collect_key_card()
+
+func _collect_key_card() -> void:
+	if _key_card != null and is_instance_valid(_key_card):
+		_key_card.queue_free()
+	_key_card = null
+	if not _cell_locked:
+		return
+	_cell_locked = false
+	_room.unlock_cell_door()
+	GameManager.add_screen_shake(0.2)
+	AudioManager.play_tick()
+	_show_toast("🔑  Key card — the cell door is open")
+
+# A brief centred message on the HUD. Used for the key card, and available to anything else that
+# needs to tell the player something without taking over the screen.
+func _show_toast(text: String) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 17)
+	lbl.add_theme_color_override("font_color", UI_THEME.CYAN_HOT)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 6)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	lbl.anchor_left = 0.0
+	lbl.anchor_right = 1.0
+	lbl.offset_top = 128.0
+	lbl.offset_bottom = 160.0
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(lbl)
+	var tw := lbl.create_tween()
+	tw.tween_property(lbl, "modulate:a", 1.0, 0.18).from(0.0)
+	tw.tween_interval(1.9)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(lbl.queue_free)

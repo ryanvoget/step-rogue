@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b88ppjmxuj4cb"
-path="res://.godot/imported/Holding Bay f4.png-dda3673f771a09f930a358d3c453515f.ctex"
+uid="uid://c4u6amfw065x6"
+path="res://.godot/imported/flamethrower_f4.png-274152fd9587f4ab37dca10aecd7afa0.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/Sprites/Floor Types/Holding Bay f4.png"
-dest_files=["res://.godot/imported/Holding Bay f4.png-dda3673f771a09f930a358d3c453515f.ctex"]
+source_file="res://assets/Sprites/weapons/flamethrower_f4.png"
+dest_files=["res://.godot/imported/flamethrower_f4.png-274152fd9587f4ab37dca10aecd7afa0.ctex"]
 
 [params]
 

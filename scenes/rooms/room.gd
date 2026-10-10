@@ -39,7 +39,7 @@ const BAR_DOOR_RIGHT := Rect2(1014.0, 419.0, 27.0, 122.0)
 const LOBBY_W := 2082.0
 const LOBBY_H := 1920.0
 const LOBBY_TEXTURE := "res://assets/Sprites/Floor Types/Holding Bay f%d.png"
-const LOBBY_FRAMES := 6      # Holding Bay is a 6-frame loop (a sparkle on the console)
+const LOBBY_FRAMES := 3      # Holding Bay is a 3-frame loop (re-exported art)
 const LOBBY_FRAME_TIME := 0.1 # 100ms per frame, matching the source GIF
 # Measured from the art: the floor slab the player can walk on (the corridor above it is art —
 # the top door is a trigger at the slab's edge, like every other door), and the two barred
@@ -47,6 +47,20 @@ const LOBBY_FRAME_TIME := 0.1 # 100ms per frame, matching the source GIF
 const LOBBY_SLAB := Rect2(112.0, 808.0, 1856.0, 992.0)             # art (56,404,928,496) x2
 const LOBBY_CELLS := [Vector2(386.0, 1594.0), Vector2(1690.0, 1594.0)] # art (193,797)/(845,797) x2
 const LOBBY_CONSOLE := Vector2(1038.0, 1190.0)                     # art (519,595) x2 — the blue circle
+# The two holding cells, measured off the Holding Bay art (all values art-coords x2).
+# Each is a walled box with a single blue door facing the central corridor, and a table along its
+# top wall. The player starts locked inside one of them and has to find the key card on the table.
+const LOBBY_CELL_RECTS := [
+	Rect2(148.0, 1378.0, 734.0, 402.0),   # left  cell, art (74,689)-(441,890)
+	Rect2(1198.0, 1378.0, 734.0, 402.0),  # right cell, art (599,689)-(966,890)
+]
+# The blue door in each cell's inner wall — the gap the lock closes off.
+const LOBBY_CELL_DOORS := [
+	Rect2(882.0, 1572.0, 30.0, 62.0),     # left cell's right-hand wall
+	Rect2(1168.0, 1572.0, 30.0, 62.0),    # right cell's left-hand wall
+]
+# Where the key card sits on each cell's table.
+const LOBBY_CELL_KEYS := [Vector2(430.0, 1432.0), Vector2(1652.0, 1432.0)]
 # The long corridor running up out of the slab. It IS walkable (the walls are T-shaped — see
 # _build_lobby_walls), and the door sits at the far top end of it rather than where it meets the
 # slab, so the run opens with a walk up the full hallway.
@@ -113,6 +127,7 @@ const DOOR_OPEN_COLOR   := Color(0.25, 0.95, 0.55, 0.9) # green — an unlocked 
 const DOOR_BACK_COLOR   := Color(0.30, 0.65, 1.00, 0.9) # blue — the door the player came in through
 
 var player_spawn_pos: Vector2
+var spawn_cell_index := -1 # which holding cell the player started in (lobby only)
 var enemy_spawn_positions: Array
 var door_sides: Array = []  # sides with visible doors — set by world.gd via set_doors
 var entry_side: int = -1    # which of those the player entered through (drawn blue once unlocked)
@@ -185,7 +200,8 @@ func configure(kind: String) -> void:
 	# Lobby: start locked in one of the two holding cells (picked at random), so the run opens
 	# with a walk up out of the cell toward the single top door.
 	if kind == "start":
-		player_spawn_pos = LOBBY_CELLS[randi() % LOBBY_CELLS.size()]
+		spawn_cell_index = randi() % LOBBY_CELLS.size()
+		player_spawn_pos = LOBBY_CELLS[spawn_cell_index]
 	else:
 		player_spawn_pos = _play.get_center()
 	var cy := _play.get_center().y
@@ -482,3 +498,71 @@ func _wall(pos: Vector2, size: Vector2) -> void:
 	body.add_child(col)
 	add_child(body)
 	_wall_bodies.append(body)
+
+
+# ── Holding cell lock ────────────────────────────────────────────────────────────────────────
+# Walls the player into one of the two holding cells. The cell's own perimeter is drawn into the
+# art but has no colliders of its own (the lobby only ever walled the outer slab), so the lock
+# builds them — including across the blue door — and open_cell_lock() drops just the door segment
+# once the key card is found.
+var _cell_wall_bodies: Array = []
+var _locked_cell := -1
+
+func lock_cell(index: int) -> void:
+	open_cell_lock()
+	if index < 0 or index >= LOBBY_CELL_RECTS.size():
+		return
+	_locked_cell = index
+	var r: Rect2 = LOBBY_CELL_RECTS[index]
+	var door: Rect2 = LOBBY_CELL_DOORS[index]
+	var inner_right: bool = door.position.x > r.position.x # which wall the door is in
+	_cell_wall(Rect2(r.position.x - WALL_T, r.position.y - WALL_T, r.size.x + WALL_T * 2.0, WALL_T), false) # top
+	_cell_wall(Rect2(r.position.x - WALL_T, r.end.y, r.size.x + WALL_T * 2.0, WALL_T), false)              # bottom
+	# The two side walls, with the door side split around the gap.
+	var left_x := r.position.x - WALL_T
+	var right_x := r.end.x
+	for side in [[left_x, not inner_right], [right_x, inner_right]]:
+		var x: float = side[0]
+		var has_door: bool = side[1]
+		if not has_door:
+			_cell_wall(Rect2(x, r.position.y, WALL_T, r.size.y), false)
+			continue
+		# above the door, the door itself (removable), and below it
+		_cell_wall(Rect2(x, r.position.y, WALL_T, door.position.y - r.position.y), false)
+		_cell_wall(Rect2(x, door.position.y, WALL_T, door.size.y), true)
+		_cell_wall(Rect2(x, door.end.y, WALL_T, r.end.y - door.end.y), false)
+
+func _cell_wall(rect: Rect2, is_door: bool) -> void:
+	var body := StaticBody2D.new()
+	body.position = rect.position
+	body.collision_layer = 8
+	body.collision_mask = 0
+	body.set_meta("cell_door", is_door)
+	var col := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+	shape.size = rect.size
+	col.shape = shape
+	col.position = rect.size * 0.5
+	body.add_child(col)
+	add_child(body)
+	_cell_wall_bodies.append(body)
+
+# Drops only the door segment — the rest of the cell stays walled, so the room still reads as a
+# cell the player broke out of rather than one that evaporated.
+func unlock_cell_door() -> void:
+	for b in _cell_wall_bodies:
+		if is_instance_valid(b) and b.get_meta("cell_door", false):
+			b.queue_free()
+	_cell_wall_bodies = _cell_wall_bodies.filter(
+		func(b): return is_instance_valid(b) and not b.get_meta("cell_door", false))
+	queue_redraw()
+
+func open_cell_lock() -> void:
+	for b in _cell_wall_bodies:
+		if is_instance_valid(b):
+			b.queue_free()
+	_cell_wall_bodies.clear()
+	_locked_cell = -1
+
+func locked_cell_index() -> int:
+	return _locked_cell

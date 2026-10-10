@@ -59,6 +59,21 @@ const WAVE_BULLET_WIDTH := 60.0
 const FLAME_RANGE := 150.0       # Solar closes to this and burns continuously in a cone
 const FLAME_ARC := 0.6           # half-angle (radians) of the flame cone
 const FLAME_COLOR := Color(1.0, 0.5, 0.1)
+# Flamethrower art (assets/Flame thrower.aseprite, 8 frames). The jet grows over the first three
+# frames, then the remaining five are the sustained burn and loop. Shutting off replays the
+# deploy frames backwards, so the flame retracts into the nozzle rather than vanishing.
+const FLAME_FRAME_PATH := "res://assets/Sprites/weapons/flamethrower_f%d.png"
+const FLAME_FRAME_COUNT := 8
+const FLAME_DEPLOY_FRAMES := 3   # 0,1,2 — the jet extending
+const FLAME_FRAME_TIME := 0.08
+# 23px of art stretched to exactly FLAME_RANGE, so the jet reaches as far as it actually burns —
+# a shorter sprite would under-sell the hitbox and get the player hit by something that looked
+# out of range.
+const FLAME_SPRITE_SCALE := 6.52
+const FLAME_PHASE_OFF := 0
+const FLAME_PHASE_DEPLOY := 1
+const FLAME_PHASE_LOOP := 2
+const FLAME_PHASE_RETRACT := 3
 const TELEPORT_INTERVAL := 3.0   # Warp jumps to a random spot this often
 const GRENADE_INTERVAL := 3.0    # Nova lobs a blast grenade this often
 # Boss1 wall-bounce charge: every BOSS1_CYCLE seconds it stops meleeing, charges for BOSS1_CHARGE,
@@ -191,7 +206,11 @@ var _fling_vel := Vector2.ZERO # ...locked-in launch velocity while airborne
 var _staff_range := STAFF_RANGE                      # melee reach (Boss1 gets 2.5x — set in configure_type)
 var _strafe_dir := 1.0                               # current sideways drift direction while firing
 var _strafe_timer := 0.0
-var _flame_active := false      # true while Solar is burning the player (drives the cone draw)
+var _flame_active := false
+var _flame_frames: Array = []     # lazily loaded textures, shared across every Solar
+var _flame_phase := FLAME_PHASE_OFF
+var _flame_frame := 0
+var _flame_frame_timer := 0.0      # true while Solar is burning the player (drives the cone draw)
 var _flame_angle := 0.0
 
 var health: int
@@ -897,14 +916,64 @@ func _ranged_attack(delta: float) -> void:
 # ticking every _attack_cd. Draws the cone (see _draw) while _flame_active.
 func _flame_attack(delta: float, dist: float) -> void:
 	_flame_angle = (_player.global_position - global_position).angle()
-	if dist <= FLAME_RANGE and not is_blinded():
+	var firing: bool = dist <= FLAME_RANGE and not is_blinded()
+	if firing:
 		_flame_active = true
 		_attack_timer -= delta
 		if _attack_timer <= 0.0:
 			_attack_timer = _attack_cd
 			if _player.has_method("take_damage"):
 				_player.take_damage(_attack_dmg, Vector2.ZERO, 0.0, 0.0, Color(1.0, 1.0, 1.0), false, self)
+	_tick_flame_anim(delta, firing)
 	queue_redraw()
+
+# Three-phase flame animation:
+#   DEPLOY  — frames 0..2 forward, the jet extending out of the nozzle
+#   LOOP    — frames 3..7 cycling, the sustained burn
+#   RETRACT — frames 2..0 backward once the enemy stops firing, pulling the flame back in
+# The enemy only counts as "burning" (damage + cone) while deploying or looping, so the retract
+# is purely visual and cannot keep hurting the player after it has disengaged.
+func _tick_flame_anim(delta: float, firing: bool) -> void:
+	if firing and _flame_phase == FLAME_PHASE_OFF:
+		_flame_phase = FLAME_PHASE_DEPLOY
+		_flame_frame = 0
+		_flame_frame_timer = FLAME_FRAME_TIME
+	elif not firing and (_flame_phase == FLAME_PHASE_DEPLOY or _flame_phase == FLAME_PHASE_LOOP):
+		_flame_phase = FLAME_PHASE_RETRACT
+		_flame_active = false # retract is purely visual — the cone stops here, with the damage
+		# Start the retract from the last deploy frame, so it reads as the jet shrinking back
+		# rather than snapping to a different size first.
+		_flame_frame = mini(_flame_frame, FLAME_DEPLOY_FRAMES - 1)
+		_flame_frame_timer = FLAME_FRAME_TIME
+	if _flame_phase == FLAME_PHASE_OFF:
+		_flame_active = false
+		return
+	_flame_frame_timer -= delta
+	if _flame_frame_timer > 0.0:
+		return
+	_flame_frame_timer = FLAME_FRAME_TIME
+	match _flame_phase:
+		FLAME_PHASE_DEPLOY:
+			_flame_frame += 1
+			if _flame_frame >= FLAME_DEPLOY_FRAMES:
+				_flame_phase = FLAME_PHASE_LOOP
+				_flame_frame = FLAME_DEPLOY_FRAMES
+		FLAME_PHASE_LOOP:
+			_flame_frame += 1
+			if _flame_frame >= FLAME_FRAME_COUNT:
+				_flame_frame = FLAME_DEPLOY_FRAMES # loop only the sustained frames
+		FLAME_PHASE_RETRACT:
+			_flame_frame -= 1
+			if _flame_frame < 0:
+				_flame_phase = FLAME_PHASE_OFF
+				_flame_frame = 0
+				_flame_active = false
+
+func _flame_texture() -> Texture2D:
+	if _flame_frames.is_empty():
+		for i in range(FLAME_FRAME_COUNT):
+			_flame_frames.append(load(FLAME_FRAME_PATH % i))
+	return _flame_frames[clampi(_flame_frame, 0, FLAME_FRAME_COUNT - 1)]
 
 # "Moving": patrols left-to-right along the top of the room, bouncing off the margins near
 # each wall. Y is force-locked to the patrol lane every frame so it stays "on the top of the
@@ -1015,15 +1084,26 @@ func _drop_coins() -> void:
 func _draw() -> void:
 	# Flame cone (drawn behind the body) while Solar is burning the player. Centre via to_local so it
 	# points at the player even though the body is rotated by look_at (was double-rotated before).
-	if _flame_active:
+	if _flame_phase != FLAME_PHASE_OFF:
 		var fwp := global_position + Vector2(100.0, 0.0).rotated(_flame_angle)
 		var fcenter := to_local(fwp).angle()
-		var pts := PackedVector2Array([Vector2.ZERO])
-		const SEG := 10
-		for i in range(SEG + 1):
-			var a := fcenter - FLAME_ARC + (2.0 * FLAME_ARC) * (float(i) / float(SEG))
-			pts.append(Vector2(FLAME_RANGE, 0.0).rotated(a))
-		draw_colored_polygon(pts, Color(FLAME_COLOR, 0.35))
+		# Faint cone underneath, so the damage area stays readable even though the sprite is a
+		# narrow jet. Only while actually burning — not during the retract, which deals nothing.
+		if _flame_active:
+			var pts := PackedVector2Array([Vector2.ZERO])
+			const SEG := 10
+			for i in range(SEG + 1):
+				var a := fcenter - FLAME_ARC + (2.0 * FLAME_ARC) * (float(i) / float(SEG))
+				pts.append(Vector2(FLAME_RANGE, 0.0).rotated(a))
+			draw_colored_polygon(pts, Color(FLAME_COLOR, 0.16))
+		# The flamethrower art itself, anchored at the nozzle and pointed down the cone.
+		var tex := _flame_texture()
+		if tex != null:
+			var tw: float = float(tex.get_width()) * FLAME_SPRITE_SCALE
+			var th: float = float(tex.get_height()) * FLAME_SPRITE_SCALE
+			draw_set_transform(Vector2.ZERO, fcenter, Vector2.ONE)
+			draw_texture_rect(tex, Rect2(0.0, -th * 0.5, tw, th), false)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	var col := _body_color
 	if _state == State.ATTACK:

@@ -54,6 +54,13 @@ const LASER_RECT_SIZE := Vector2(18.0, 6.0)
 const LASER_GLOW_COLOR := Color(1.0, 0.12, 0.08)
 const LASER_CORE_COLOR := Color(0.85, 0.97, 1.0) # blinding cyan-white core wrapped in red bloom
 
+# Bolt art (assets/Laser.aseprite / Electric Laser.aseprite, 14x3 each). Drawn stretched along
+# travel in place of the old procedural rect stack — the glow layers below still wrap it, so a
+# bolt keeps reading as an emitter rather than a flat decal.
+const LASER_TEX := preload("res://assets/Sprites/weapons/laser_bolt.png")
+const LASER_TEX_ELECTRIC := preload("res://assets/Sprites/weapons/laser_bolt_electric.png")
+const LASER_TEX_SCALE := 1.6
+
 const LASER_IMPACT_SCENE := preload("res://scenes/fx/laser_impact.tscn")
 const LIGHTNING_ARC_SCENE := preload("res://scenes/fx/lightning_arc.tscn")
 const HEAVY_SHOT_DAMAGE := 12 # at/above this, an enemy hit gets a brief freeze-frame (hit-lag)
@@ -373,10 +380,19 @@ func _draw() -> void:
 		var fcore := FREEZE_RECT_SIZE * Vector2(0.7, 0.45)
 		draw_rect(Rect2(-fcore / 2.0, fcore), Color(0.85, 0.95, 1.0, 0.95))
 	else:
-		# Multi-layered bolt: a faint trailing streak, a broad soft bloom, the body, and a blinding
-		# white/cyan core line — all centred and oriented along travel, to fake intense light.
+		# Multi-layered bolt: a faint trailing streak and a broad soft bloom behind the sprite,
+		# so the art still reads as emitting light rather than as a flat sticker.
+		var electric := chain_lightning
+		var glow: Color = Color(0.37, 0.80, 0.89) if electric else LASER_GLOW_COLOR
 		var trail := Vector2(LASER_RECT_SIZE.x * 2.6, LASER_RECT_SIZE.y * 0.75)
-		draw_rect(Rect2(Vector2(-trail.x, -trail.y / 2.0), trail), Color(LASER_GLOW_COLOR, 0.10))
+		draw_rect(Rect2(Vector2(-trail.x, -trail.y / 2.0), trail), Color(glow, 0.10))
+		var bloom2 := LASER_RECT_SIZE * Vector2(2.4, 2.2)
+		draw_rect(Rect2(-bloom2 / 2.0, bloom2), Color(glow, 0.12))
+		var tex: Texture2D = LASER_TEX_ELECTRIC if electric else LASER_TEX
+		var tw := float(tex.get_width()) * LASER_TEX_SCALE
+		var th := float(tex.get_height()) * LASER_TEX_SCALE
+		draw_texture_rect(tex, Rect2(-tw * 0.5, -th * 0.5, tw, th), false)
+		return
 		var bloom := LASER_RECT_SIZE * Vector2(2.6, 2.5)
 		draw_rect(Rect2(-bloom / 2.0, bloom), Color(LASER_GLOW_COLOR, 0.12))
 		var halo := LASER_RECT_SIZE * 1.9
