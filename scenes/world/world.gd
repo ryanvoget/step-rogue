@@ -3482,7 +3482,7 @@ func _show_toast(text: String) -> void:
 # room generation are all unchanged — only the way the player triggers the move is different.
 const TELEPORT_PAD_SCENE := preload("res://scenes/teleport_pad/teleport_pad.tscn")
 const PAD_SPACING := 128.0
-const PAD_RANGE := 40.0
+const PAD_RANGE := 26.0 # under half the 65px gap between the Boss 1 spots, so two pads never overlap
 const PAD_RISE_ABOVE_CRATE := 96.0 # pads appear this far above where the crate was
 
 var _exit_pads: Array = [] # [node, side]
