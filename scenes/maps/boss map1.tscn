@@ -2,6 +2,7 @@
 
 [ext_resource type="PackedScene" path="res://scenes/props/teleport_pad_spot.tscn" id="1_ity2k"]
 [ext_resource type="TileSet" uid="uid://cu7g7i07tq0rk" path="res://scenes/maps/full_tile_set.tres" id="1_tileset"]
+[ext_resource type="PackedScene" path="res://scenes/props/big_box.tscn" id="2_lo3ye"]
 [ext_resource type="PackedScene" path="res://scenes/props/small_box.tscn" id="3_lo3ye"]
 
 [node name="NewMap" type="Node2D" unique_id=438693012]
@@ -15,11 +16,19 @@ tile_set = ExtResource("1_tileset")
 scale = Vector2(2, 2)
 tile_set = ExtResource("1_tileset")
 
+[node name="BigBox" parent="." unique_id=1641612597 instance=ExtResource("2_lo3ye")]
+position = Vector2(-191, -176)
+
 [node name="SmallBox" parent="." unique_id=222637834 instance=ExtResource("3_lo3ye")]
-position = Vector2(-191, -215)
+position = Vector2(-213, -127)
+
+[node name="SmallBox2" parent="." unique_id=899514735 instance=ExtResource("3_lo3ye")]
+position = Vector2(-169, -111)
 
 [node name="TeleportPadSpot" parent="." unique_id=1480377096 instance=ExtResource("1_ity2k")]
-position = Vector2(-96, -288)
+z_index = 50
+position = Vector2(-32, -288)
 
 [node name="TeleportPadSpot2" parent="." unique_id=1533814245 instance=ExtResource("1_ity2k")]
-position = Vector2(96, -288)
+z_index = 50
+position = Vector2(33, -288)
