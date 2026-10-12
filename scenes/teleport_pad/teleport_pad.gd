@@ -1,22 +1,56 @@
 extends Node2D
 
-# A circular teleport pad on the floor — the replacement for the room's doors. One pad per exit
-# the room used to have. Standing on it sends the player to that destination.
+# A teleport pad on the floor — the replacement for the room's doors. One pad per exit the room
+# used to have. Standing on it sends the player to that destination.
 #
-# Drawn as a lit ring on the ground with a rising column of light above it, so it reads as a
-# floor fixture rather than a decal, and a drifting inner disc so it is obviously active.
+# The pad itself is the animated "Teleport Pad" sprite (7 frames, 32x32, drawn at 2x like the
+# tile map). A faint column of light rises above it so it is still visible across the room.
 
 const T := preload("res://scenes/ui/ui_theme.gd")
+const PAD_TEXTURE := "res://assets/Teleport Pad.png"
 
-const RADIUS := 34.0
+# Teleport Pad.png: 7 frames, each 160px apart horizontally. Two floor variants of every frame —
+# the light (lavender) floor on top, the dark floor 48px below it.
+const FRAME_COUNT := 7
+const FRAME_STRIDE := 160
+const FRAME_SIZE := 32
+const DARK_ROW_Y := 48
+const PAD_FPS := 8.0
+const PAD_SCALE := 2.0
+
+const RADIUS := 32.0
 const COLUMN_H := 54.0
 
 @export var accent: Color = T.CYAN
+@export var dark_floor := false # use the dark-floor variant of the pad art
 var _t := 0.0
 var _armed := false # pads ignore the player until they step OFF, so arriving can't re-trigger
+var _sprite: AnimatedSprite2D
 
 func _ready() -> void:
 	z_index = 2 # on the floor, under the actors
+	_setup_sprite()
+
+func _setup_sprite() -> void:
+	var tex: Texture2D = load(PAD_TEXTURE)
+	var sf := SpriteFrames.new()
+	sf.set_animation_loop("default", true)
+	sf.set_animation_speed("default", PAD_FPS)
+	var y := DARK_ROW_Y if dark_floor else 0
+	for i in FRAME_COUNT:
+		var frame := AtlasTexture.new()
+		frame.atlas = tex
+		frame.region = Rect2(i * FRAME_STRIDE, y, FRAME_SIZE, FRAME_SIZE)
+		sf.add_frame("default", frame)
+	_sprite = AnimatedSprite2D.new()
+	_sprite.sprite_frames = sf
+	_sprite.scale = Vector2(PAD_SCALE, PAD_SCALE)
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# Non-default exits (e.g. the challenge exit's red) tint the pad toward their accent.
+	if not accent.is_equal_approx(T.CYAN):
+		_sprite.modulate = Color.WHITE.lerp(accent, 0.45)
+	add_child(_sprite)
+	_sprite.play("default")
 
 func arm() -> void:
 	_armed = true
@@ -30,20 +64,6 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	var pulse := 0.55 + 0.45 * sin(_t * 2.2)
-
-	# Ground ring, flattened so it lies on the floor plane rather than facing the camera.
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.45))
-	draw_circle(Vector2.ZERO, RADIUS * 1.25, Color(accent, 0.07 * pulse))
-	draw_circle(Vector2.ZERO, RADIUS, Color(accent, 0.13))
-	T.draw_glow_arc(self, Vector2.ZERO, RADIUS, 0.0, TAU, accent, 2.0, 0.9, 40)
-	# Inner ring, counter-rotating so the pad never looks static.
-	for i in 3:
-		var a := -_t * 1.1 + TAU * float(i) / 3.0
-		T.draw_glow_arc(self, Vector2.ZERO, RADIUS * 0.58, a, a + deg_to_rad(76.0),
-			T.CYAN_HOT, 1.5, 0.75, 16)
-	draw_circle(Vector2.ZERO, RADIUS * 0.22 * pulse, Color(T.CYAN_HOT, 0.6))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
 	# Column of light rising from the pad — what makes it visible across the room.
 	for i in 5:
 		var f := float(i) / 5.0

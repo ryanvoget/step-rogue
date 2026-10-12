@@ -1624,11 +1624,13 @@ func _make_room(entry_side: int, number: int) -> Dictionary:
 			kind = "cockpit"
 			doors = [0, 1, 2]
 	elif kind == "boss" and BOSS_BY_FLOOR.get(number, "") == "Boss1":
-		# The first boss fights in the tile-map arena (scenes/maps/new_map.tscn). Kind stays "boss"
+		# The first boss fights in the tile-map arena (scenes/maps/boss map1.tscn). Kind stays "boss"
 		# so the relic reward still fires; room.gd falls back to a hallway if the map is unpainted.
 		layout = "boss1"
 		variant = HALLWAY_VARIANTS[1]["tex"] # four-door hallway — fallback art if the map is empty
-		doors = [0, 1, 2, 3]
+		# Two exits — back the way the player came, and onward through the far side — so the
+		# arena shows exactly two pads (on the TeleportPadSpots in boss map1.tscn).
+		doors = [entry_side, _opposite(entry_side)] if entry_side != -1 else [0, 1]
 	elif kind == "combat":
 		# Pick evenly among the layouts that have a door where the player came in. These are
 		# different sizes/shapes, so each is a room KIND (room.gd::configure) rather than another
@@ -3508,10 +3510,15 @@ func _spawn_exit_pads() -> void:
 		span = max_span
 	anchor.y = clampf(anchor.y, r.position.y + 70.0, r.end.y - 70.0)
 	var challenge_side: int = _rooms[_current_pos].get("challenge_door", -1)
+	# Hand-placed TeleportPadSpot markers in the room's tile map take priority over the row.
+	var spots: Array = _room.get_pad_spots()
 	for i in sides.size():
 		var side: int = sides[i]
 		var pad: Node2D = TELEPORT_PAD_SCENE.instantiate()
-		pad.global_position = Vector2(anchor.x - span * 0.5 + spacing * float(i), anchor.y)
+		if i < spots.size():
+			pad.global_position = spots[i]
+		else:
+			pad.global_position = Vector2(anchor.x - span * 0.5 + spacing * float(i), anchor.y)
 		# The challenge exit keeps its red warning, as the flashing door used to.
 		pad.accent = Color(1.0, 0.30, 0.25) if side == challenge_side else UI_THEME.CYAN
 		_props.add_child(pad)

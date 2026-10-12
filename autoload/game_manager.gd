@@ -211,10 +211,10 @@ var step_bank: int:
 # world.gd's _ready and on reset() below.
 var coins: int = 0
 var final_boss_beaten: bool = false # run-scoped: true once the final boss (phase 2) is cleared, so
-                                    # the loadout is kept (no hedge-loss) for the rest of the run
+									# the loadout is kept (no hedge-loss) for the rest of the run
 var run_artifacts: Array = []       # artifacts found DURING this run (e.g. the bar slot machine),
-                                    # stacking on top of the equipped one — reset each run (world.gd).
-                                    # Their effects combine via ItemRegistry.artifact_num.
+									# stacking on top of the equipped one — reset each run (world.gd).
+									# Their effects combine via ItemRegistry.artifact_num.
 # Screen-shake "trauma" (0..1): callers (e.g. melee hits) add to it; world.gd's camera turns it into
 # a quick decaying camera jolt (trauma^2 * max offset), then decays it back to 0.
 var screen_shake: float = 0.0

@@ -3,45 +3,45 @@ extends Area2D
 @export var speed := 520.0
 @export var damage := 15
 @export var freeze_duration := 0.0 # >0 = freezes (fully halts) whatever it hits for this long;
-                                    # also swaps the draw from the default yellow dot to a
-                                    # blue laser rectangle (e.g. Freeze Gun)
+									# also swaps the draw from the default yellow dot to a
+									# blue laser rectangle (e.g. Freeze Gun)
 @export var knockback_force := 0.0 # px/s impulse on hit; 0 = no knockback (e.g. Wave Ray Gun's slight push)
 @export var wave_max_width := 0.0  # >0 marks this an expanding elliptical wave (Wave Ray Gun):
-                                    # drawn (and collision-scaled) wider the farther it's traveled,
-                                    # capping at this width once it's gone WAVE_MAX_TRAVEL_DISTANCE
+									# drawn (and collision-scaled) wider the farther it's traveled,
+									# capping at this width once it's gone WAVE_MAX_TRAVEL_DISTANCE
 @export var burn_damage := 0       # >0 = applies a burn DOT on hit (e.g. Fire Blaster)
 @export var burn_duration := 0.0
 @export var chain_lightning := false # arcs to a nearby enemy on hit (e.g. Electro Blaster)
 @export var chain_count := 1        # how many enemies the arc hops through after the first hit
 @export var chain_damage_frac := 0.5 # arc damage as a fraction of the bullet's own (1.0 = same)
 @export var pierce := false        # passes through enemies (each hit once) instead of dying on the
-                                    # first — Photon Spear. Walls still stop it.
+									# first — Photon Spear. Walls still stop it.
 @export var ricochet_bounces := 0  # how many times this bounces off walls before dying — the
-                                    # dagger family and Cannon Boomerang
+									# dagger family and Cannon Boomerang
 @export var split_count := 0       # splits into this many children after split_delay, fanned
-                                    # around its heading — Dagger Hammer's knives
+									# around its heading — Dagger Hammer's knives
 @export var split_delay := 0.0
 @export var max_range := 0.0       # >0 = dies after travelling this far. Bullets are otherwise
-                                    # unlimited (they only stop on a wall or off-screen), so this
-                                    # is what makes "shorter/longer range" mean anything
+									# unlimited (they only stop on a wall or off-screen), so this
+									# is what makes "shorter/longer range" mean anything
 @export var bolt_style := false     # draws as a long light-blue lightning bolt instead of the
-                                    # default red laser dash — Photon Spear. Purely visual; the
-                                    # collision shape is unchanged.
+									# default red laser dash — Photon Spear. Purely visual; the
+									# collision shape is unchanged.
 @export var spiral_radius := 0.0    # >0 = corkscrews around its launch axis instead of flying
-                                    # straight — Beam Laser Blaster's side lasers vortexing around
-                                    # the beam. The bullet still advances at `speed` along the
-                                    # axis; the orbit is on top of that.
+									# straight — Beam Laser Blaster's side lasers vortexing around
+									# the beam. The bullet still advances at `speed` along the
+									# axis; the orbit is on top of that.
 @export var spiral_rate := 0.0      # orbits per second
 @export var spiral_phase := 0.0     # starting angle, so paired shots can launch opposite
 @export var target_group := "enemies" # which group take_damage() is called on when this bullet
-                                    # hits a body — "player" for enemy-fired bullets (see
-                                    # GameManager.spawn_enemy_bullet), "enemies" otherwise
+									# hits a body — "player" for enemy-fired bullets (see
+									# GameManager.spawn_enemy_bullet), "enemies" otherwise
 
 var from_player := false # true for player-fired bullets — see GameManager.spawn_bullet; drives
-                          # the bullet-accuracy "shot hit" stat in _apply_hit
+						  # the bullet-accuracy "shot hit" stat in _apply_hit
 var shooter: Node2D = null # who fired this (enemy-fired bullets only — see
-                            # GameManager.spawn_enemy_bullet) so Reflect Shield knows who to
-                            # deal reflected damage back to; null/unused for player-fired bullets
+							# GameManager.spawn_enemy_bullet) so Reflect Shield knows who to
+							# deal reflected damage back to; null/unused for player-fired bullets
 
 const FREEZE_COLOR := Color(0.25, 0.55, 1.0)
 const FREEZE_RECT_SIZE := Vector2(16.0, 5.0) # long and thin, laser-shaped, oriented along travel

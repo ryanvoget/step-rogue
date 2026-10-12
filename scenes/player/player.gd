@@ -299,16 +299,25 @@ func _ready() -> void:
 	_setup_weapon()
 
 func _setup_sprite() -> void:
-	# Single-frame 32x32 character ("Guy 1"). The movement state machine (_update_sprite) still
-	# plays idle/run_up/run_down/run_left/run_right, so each is registered as a one-frame animation
-	# of the same texture — the player renders as the 32x32 guy in every state/facing.
+	# 32x32 character. Idle is the single "Guy 1" frame; moving plays the 6-frame "Walking forward"
+	# sheet. Only the forward walk exists so far, so every run_* direction the movement state
+	# machine (_update_sprite) asks for uses that same cycle.
 	var guy_tex: Texture2D = load("res://assets/Sprites/Guy/Guy 1.png")
+	var walk_tex: Texture2D = load("res://assets/Sprites/Guy/Walking forward-sheet.png")
 	var sf := SpriteFrames.new()
 	sf.remove_animation("default")
-	for anim_name in ["idle", "run_up", "run_down", "run_left", "run_right"]:
+	sf.add_animation("idle")
+	sf.set_animation_loop("idle", true)
+	sf.add_frame("idle", guy_tex)
+	for anim_name in ["run_up", "run_down", "run_left", "run_right"]:
 		sf.add_animation(anim_name)
 		sf.set_animation_loop(anim_name, true)
-		sf.add_frame(anim_name, guy_tex)
+		sf.set_animation_speed(anim_name, RUN_FPS)
+		for i in 6:
+			var frame := AtlasTexture.new()
+			frame.atlas = walk_tex
+			frame.region = Rect2(i * 32, 0, 32, 32)
+			sf.add_frame(anim_name, frame)
 	_sprite.sprite_frames = sf
 	# Draw the 32x32 guy at 2x (64 world px) with NEAREST filtering — same world size the old 64px
 	# character had, so movement/collision tuning is unchanged, while pixels stay chunky like the map.

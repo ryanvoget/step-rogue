@@ -100,14 +100,14 @@ const DOCK_PLAY := Rect2(75.0, 540.0, 890.0, 395.0) # floor slab (60,526)-(980,9
 const DOCK_DOOR_LEFT := Rect2(29.0, 695.0, 31.0, 90.0)
 const DOCK_DOOR_RIGHT := Rect2(980.0, 693.0, 27.0, 112.0)
 const DOCK_DOOR_BOTTOM := Rect2(433.0, 935.0, 122.0, 25.0)
-# "boss1": the first boss arena, painted as a TileMap (scenes/maps/new_map.tscn, FULL TILE SET).
+# "boss1": the first boss arena, painted as a TileMap (scenes/maps/boss map1.tscn, FULL TILE SET).
 # Its layers are drawn at 2x like the hallways, so one 32px tile is 64 world units. The room is
 # the bounding box of every painted cell, shifted so it starts at (0,0); the outermost ring of
 # tiles is the wall, so _play is that box inset by one tile. Wall tiles carry their own collision
 # (full_tile_set.tres, physics layer "Walls"), which shapes anything painted inside the arena.
 # Doors are trigger zones centred on each edge, like the hallways. If nothing has been painted
 # yet, the room falls back to a plain hallway so floor 15 still works.
-const BOSS1_MAP_SCENE := "res://scenes/maps/new_map.tscn"
+const BOSS1_MAP_SCENE := "uid://bfeuqbhqf4xhv" # scenes/maps/boss map1.tscn — by uid so a rename can't break it
 const BOSS1_TILE := 64.0
 const BOSS1_DOOR_DEPTH := 64.0
 var _tile_map: Node2D = null # the instanced boss1 map while that layout is showing
@@ -463,6 +463,17 @@ func _load_tile_map() -> Rect2:
 	move_child(map, 0)
 	_tile_map = map
 	return Rect2(Vector2.ZERO, Vector2(cells.size) * BOSS1_TILE)
+
+# World positions of the TeleportPadSpot markers placed in the current tile map, in scene order.
+# Empty for sprite-art rooms (no tile map) or a map with no spots.
+func get_pad_spots() -> Array:
+	var spots: Array = []
+	if _tile_map == null or not is_instance_valid(_tile_map):
+		return spots
+	for n in _tile_map.find_children("*", "Marker2D", true, false):
+		if n.is_in_group("teleport_pad_spot"):
+			spots.append(n.global_position)
+	return spots
 
 func _clear_tile_map() -> void:
 	if _tile_map != null and is_instance_valid(_tile_map):

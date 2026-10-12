@@ -1,0 +1,25 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Texture2D" uid="uid://wptqtat8kwxu" path="res://assets/FULL TILE SET.png" id="1_tiles"]
+[ext_resource type="Script" path="res://scenes/props/depth_box.gd" id="2_depth"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_box"]
+atlas = ExtResource("1_tiles")
+region = Rect2(80, 248, 64, 64)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_box"]
+size = Vector2(128, 88)
+
+[node name="BigBox" type="StaticBody2D"]
+collision_layer = 8
+collision_mask = 0
+script = ExtResource("2_depth")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 1
+scale = Vector2(2, 2)
+texture = SubResource("AtlasTexture_box")
+
+[node name="Collision" type="CollisionShape2D" parent="."]
+position = Vector2(0, 20)
+shape = SubResource("RectangleShape2D_box")
