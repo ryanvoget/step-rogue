@@ -435,24 +435,11 @@ func _door_outline(side: int) -> PackedVector2Array:
 	return PackedVector2Array()
 
 func _draw() -> void:
-	# Every layout is textured now — the bar and lobby placeholders were replaced by real art. A
-	# code-drawn background here would paint straight over the sprite (z_index -10), so _draw only
-	# adds the door status outlines on top of whatever art the room is showing.
-	for side in door_sides:
-		var outline := _door_outline(side)
-		if outline.size() < 2:
-			continue # this layout has no marker for that side (e.g. the lobby's single top door)
-		var frame_col := DOOR_LOCKED_COLOR
-		var width := 3.0
-		if not doors_locked:
-			if side == challenge_side:
-				# Flashing red challenge door (pulses between dim and bright red).
-				var f := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 110.0)
-				frame_col = Color(0.55, 0.02, 0.02).lerp(Color(1.0, 0.20, 0.15), f)
-				width = 5.0
-			else:
-				frame_col = DOOR_BACK_COLOR if side == entry_side else DOOR_OPEN_COLOR
-		draw_polyline(outline, frame_col, width)
+	# Doors were replaced by teleport pads (world.gd's _spawn_exit_pads), so there is no longer a
+	# door outline to paint. The room art is a sprite at z_index -10 and draws itself; anything
+	# drawn here would sit on top of it, so this stays empty rather than being removed outright —
+	# set_doors() still calls queue_redraw().
+	pass
 
 # Instances the boss1 tile map behind everything and shifts it so its painted area starts at
 # (0,0). Returns that area in world units (empty if nothing is painted or the scene is missing).
@@ -471,7 +458,7 @@ func _load_tile_map() -> Rect2:
 		map.free()
 		return Rect2()
 	map.position = -Vector2(cells.position) * BOSS1_TILE
-	map.z_index = -10 # behind enemies, player, doors — same as the sprite art
+	map.z_index = -10 # behind enemies and the player — same as the sprite art
 	add_child(map)
 	move_child(map, 0)
 	_tile_map = map
@@ -625,3 +612,16 @@ func open_cell_lock() -> void:
 
 func locked_cell_index() -> int:
 	return _locked_cell
+
+
+# Where the player materialises when they teleport into this room: bottom-centre of the walkable
+# area, inset enough that they never spawn inside the bottom wall. Replaces entry_position(side),
+# which only made sense when rooms were entered through a specific door.
+const ARRIVAL_INSET := 90.0
+
+func arrival_position() -> Vector2:
+	var r := _play
+	if _kind == "start":
+		# The lobby still starts the player in a holding cell, not on a pad.
+		return player_spawn_pos
+	return Vector2(r.get_center().x, r.end.y - ARRIVAL_INSET)

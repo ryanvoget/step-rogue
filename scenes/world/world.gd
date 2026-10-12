@@ -839,6 +839,7 @@ func _schedule_enemy_waves(types: Array, spawns: Array, count: int, floor_n: int
 	# Build the queue as a list of GROUPS rather than individual arrival times, so the pump below
 	# can release a whole group at once and re-time whatever is left.
 	_spawn_queue.clear()
+	_clear_exit_pads()
 	_key_card = null
 	_cell_locked = false
 	_boss2_add_timer = 0.0
@@ -1676,6 +1677,7 @@ func _refresh_doors() -> void:
 	if cd != -1 and st.get("cleared", false):
 		_room.set_challenge_door(cd) # keep the flashing red door showing when re-entering a cleared room
 	_update_camera(true) # snap the camera to the new room immediately
+	_spawn_exit_pads()   # rooms with nothing left to resolve show their exits straight away
 
 # Door polling: walls stay physically solid behind the drawn gaps, so transitions trigger off
 # the player overlapping a door's zone (which reaches slightly into the room) rather than
@@ -1736,10 +1738,7 @@ func _physics_process(_delta: float) -> void:
 			_terminal_active = false
 	if GameManager.ui_popup_open:
 		return
-	for side in _active_door_sides():
-		if _room.door_zone(side).has_point(_player.global_position):
-			_go_through_door(side)
-			return
+	_tick_exit_pads()
 
 # Crate-spin ticker: while the reward crate is spinning, play a tick each time a new card
 # crosses the center marker. idx grows as the track scrolls left; it slows with the tween's
@@ -1847,7 +1846,9 @@ func _go_through_door(side: int) -> void:
 	GameManager.current_floor = st["number"]
 	GameManager.floor_changed.emit(st["number"])
 	_refresh_doors() # reconfigure the room (size/walls/bounds) FIRST so entry_position uses the new room
-	_player.global_position = _room.entry_position(entry)
+	# Teleport in at the bottom-centre of the new room, not at the door you came from — there are
+	# no doors any more, so there is no "side" to arrive at.
+	_player.global_position = _room.arrival_position()
 	_update_camera(true) # re-snap now that the player is placed in the resized room
 	_set_combat_room_flag(st)   # drives the combat_only artifact gate (Fire Trail+, Wave Pulse+)
 	_grant_room_invincibility() # Invincible+ artifact — every room entry
@@ -3248,6 +3249,7 @@ func _dismiss_upgrade_crate() -> void:
 	_crate_pending = false
 	_crate_dismissing = false
 	_refresh_doors()
+	_spawn_exit_pads() # the exits rise where the crate stood
 
 # ── Run stat readout ─────────────────────────────────────────────────────────────────────────
 # The running total of every upgrade bought this run, shown beside the crate reel. Each row is
@@ -3468,3 +3470,68 @@ func _show_toast(text: String) -> void:
 	tw.tween_interval(1.9)
 	tw.tween_property(lbl, "modulate:a", 0.0, 0.5)
 	tw.tween_callback(lbl.queue_free)
+
+# ── Exit teleport pads ───────────────────────────────────────────────────────────────────────
+# Rooms no longer have doors. Once a room is finished — the fight cleared AND the reward crate
+# resolved — a row of circular teleport pads rises where the crate stood, one per exit the room
+# would have had. Stepping onto a pad takes that exit.
+#
+# The destination is still identified by a door "side", so the map graph, challenge doors and
+# room generation are all unchanged — only the way the player triggers the move is different.
+const TELEPORT_PAD_SCENE := preload("res://scenes/teleport_pad/teleport_pad.tscn")
+const PAD_SPACING := 128.0
+const PAD_RANGE := 40.0
+const PAD_RISE_ABOVE_CRATE := 96.0 # pads appear this far above where the crate was
+
+var _exit_pads: Array = [] # [node, side]
+
+func _clear_exit_pads() -> void:
+	for e in _exit_pads:
+		if is_instance_valid(e[0]):
+			e[0].queue_free()
+	_exit_pads.clear()
+
+# Spawns one pad per available exit, in a row centred above the crate position.
+func _spawn_exit_pads() -> void:
+	_clear_exit_pads()
+	var sides: Array = _active_door_sides()
+	if sides.is_empty() or _crate_pending:
+		return
+	var r: Rect2 = GameManager.play_rect
+	var anchor := Vector2(r.get_center().x, r.get_center().y - 28.0 - PAD_RISE_ABOVE_CRATE)
+	# Keep the row inside the room — a four-exit row is wider than some layouts.
+	var span: float = PAD_SPACING * float(sides.size() - 1)
+	var max_span: float = maxf(r.size.x - 180.0, 0.0)
+	var spacing: float = PAD_SPACING
+	if span > max_span and sides.size() > 1:
+		spacing = max_span / float(sides.size() - 1)
+		span = max_span
+	anchor.y = clampf(anchor.y, r.position.y + 70.0, r.end.y - 70.0)
+	var challenge_side: int = _rooms[_current_pos].get("challenge_door", -1)
+	for i in sides.size():
+		var side: int = sides[i]
+		var pad: Node2D = TELEPORT_PAD_SCENE.instantiate()
+		pad.global_position = Vector2(anchor.x - span * 0.5 + spacing * float(i), anchor.y)
+		# The challenge exit keeps its red warning, as the flashing door used to.
+		pad.accent = Color(1.0, 0.30, 0.25) if side == challenge_side else UI_THEME.CYAN
+		_props.add_child(pad)
+		_exit_pads.append([pad, side])
+
+# Standing on a pad takes its exit. Pads only arm once the player has stepped clear of them, so
+# arriving in a room (which drops the player at the bottom-centre) can never bounce them straight
+# back out through a pad they happen to materialise on.
+func _tick_exit_pads() -> void:
+	if _exit_pads.is_empty() or _player == null or not is_instance_valid(_player):
+		return
+	for e in _exit_pads:
+		var pad: Node2D = e[0]
+		if not is_instance_valid(pad):
+			continue
+		var near: bool = _player.global_position.distance_to(pad.global_position) <= PAD_RANGE
+		if not pad.is_armed():
+			if not near:
+				pad.arm()
+			continue
+		if near:
+			_go_through_door(int(e[1]))
+			return
